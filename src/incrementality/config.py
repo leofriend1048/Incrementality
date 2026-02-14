@@ -11,10 +11,10 @@ from pydantic import BaseModel, Field
 
 class ShopifyConfig(BaseModel):
     shop_domain: str  # e.g., "my-store.myshopify.com"
-    api_key: str
-    api_secret: str
-    access_token: str
-    api_version: str = "2024-01"
+    api_key: str = ""
+    api_secret: str = ""
+    access_token: str = ""
+    api_version: str = "2025-01"
 
 
 class AmazonConfig(BaseModel):

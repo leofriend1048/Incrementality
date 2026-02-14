@@ -28,7 +28,7 @@ TAGLINE = "Geo Incrementality Platform"
 try:
     VERSION = importlib.metadata.version("incrementality")
 except importlib.metadata.PackageNotFoundError:
-    VERSION = "0.2.0"
+    VERSION = "0.3.0"
 
 # ── Theme ─────────────────────────────────────────────────────────────────────
 

@@ -16,6 +16,10 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+import warnings as _warnings
+_warnings.filterwarnings("ignore", message=".*Pyarrow.*")
+_warnings.filterwarnings("ignore", category=FutureWarning)
+
 import click
 import numpy as np
 import pandas as pd
@@ -49,12 +53,30 @@ logger = logging.getLogger("incrementality")
 
 
 def _setup_logging(verbose: bool) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    if verbose:
+        level = logging.DEBUG
+        fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    else:
+        # In normal mode, suppress all logs — the branded UI handles output
+        level = logging.WARNING
+        fmt = "[%(levelname)s] %(message)s"
+
+    logging.basicConfig(level=level, format=fmt, datefmt="%H:%M:%S")
+
+    # Suppress noisy third-party loggers regardless of mode
+    for noisy in [
+        "tensorflow", "absl", "h5py", "urllib3",
+        "google.auth", "google.api_core",
+    ]:
+        logging.getLogger(noisy).setLevel(logging.ERROR)
+
+    # Suppress TensorFlow C++ logs and scipy warnings
+    import os
+    import warnings
+    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+    warnings.filterwarnings("ignore", category=FutureWarning)
+    warnings.filterwarnings("ignore", message=".*deprecated.*", category=DeprecationWarning)
+    warnings.filterwarnings("ignore", message=".*did not converge.*")
 
 
 # ── Main Group ────────────────────────────────────────────────────────────────

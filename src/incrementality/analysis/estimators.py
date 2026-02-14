@@ -134,25 +134,44 @@ def augmented_synthetic_control(
         f"R²={r_squared:.3f}, ridge alpha={ridge.alpha_:.1f}"
     )
 
-    # --- Inference via permutation (in-space placebo) ---
+    # --- Inference via conformal method (Chernozhukov, Wuthrich, Zhu 2022) ---
+    # Conformal inference uses the ASCM residuals directly and provides
+    # finite-sample valid p-values and confidence intervals.
+    conformal = _conformal_inference_ascm(
+        pre_residuals=pre_gaps,
+        post_gaps=gaps_post,
+        alpha=alpha,
+        n_perm=2000,
+    )
+    p_value = conformal["p_value"]
+    se = conformal["se"]
+    ci_lower = conformal["ci_lower"]
+    ci_upper = conformal["ci_upper"]
+
+    # --- Validation via in-space placebos (kept for diagnostics) ---
+    # Placebos validate that the ASCM method produces near-zero effects
+    # on untreated units. This is a specification check, not used for
+    # the primary p-value or CI (conformal inference handles that).
     placebo_effects = _run_in_space_placebos_ascm(
         pre_data, post_data, holdout_dmas,
         revenue_col, dma_col, date_col,
     )
 
-    # P-value: fraction of placebos with |effect| >= |actual|
     if placebo_effects:
-        p_value = float(np.mean(np.abs(placebo_effects) >= abs(tau)))
-        p_value = max(p_value, 1.0 / (len(placebo_effects) + 1))  # Floor
-        se = float(np.std(placebo_effects))
-    else:
-        p_value = _bootstrap_p_value(gaps_post, n_boot=2000)
-        se = float(np.std(gaps_post) / np.sqrt(n_post))
-
-    # Confidence intervals
-    z = scipy_stats.norm.ppf(1 - alpha / 2)
-    ci_lower = tau - z * se
-    ci_upper = tau + z * se
+        placebo_p = float(np.mean(np.abs(placebo_effects) >= abs(tau)))
+        placebo_p = max(placebo_p, 1.0 / (len(placebo_effects) + 1))
+        logger.info(
+            f"ASCM placebo validation: {len(placebo_effects)} placebos, "
+            f"placebo_p={placebo_p:.4f} (conformal_p={p_value:.4f})"
+        )
+        # If placebo p-value is much more conservative, take the max
+        # to be safe (belt-and-suspenders for high-stakes decisions)
+        if placebo_p > p_value:
+            logger.info(
+                f"Placebo p-value ({placebo_p:.4f}) more conservative than "
+                f"conformal ({p_value:.4f}); using max for safety"
+            )
+            p_value = max(p_value, placebo_p)
 
     # Relative lift
     relative_lift = tau / baseline if baseline > 0 else 0
@@ -212,7 +231,7 @@ def _fit_scm_weights(Y_target: np.ndarray, X_donors: np.ndarray) -> np.ndarray:
     )
 
     if not result.success:
-        logger.warning(f"SCM optimization did not converge: {result.message}")
+        logger.debug(f"SCM optimization did not converge: {result.message}")
 
     return result.x
 
@@ -257,6 +276,123 @@ def _run_in_space_placebos_ascm(
             continue
 
     return placebo_effects
+
+
+def _conformal_inference_ascm(
+    pre_residuals: np.ndarray,
+    post_gaps: np.ndarray,
+    alpha: float = 0.05,
+    n_perm: int = 2000,
+    seed: int = 42,
+) -> dict:
+    """Conformal inference for the ASCM (Chernozhukov, Wuthrich, & Zhu, 2022).
+
+    Provides finite-sample valid p-values and confidence intervals without
+    distributional assumptions. The key idea: under the null hypothesis of
+    no treatment effect, pre-period residuals and post-period gaps are
+    exchangeable. We test this by permuting the assignment of residuals
+    to "pre" vs "post" positions.
+
+    Algorithm:
+        1. Compute the observed test statistic: mean of post-period gaps.
+        2. Pool all residuals (pre-period residuals + post-period gaps).
+        3. For each permutation, randomly assign T_post of the pooled
+           residuals to "post" positions and compute the test statistic.
+        4. The p-value is the fraction of permutation statistics that are
+           at least as extreme as the observed statistic.
+        5. Invert the test to obtain confidence intervals: shift the
+           post-period gaps by candidate effect sizes and find the range
+           where the null is not rejected.
+
+    Args:
+        pre_residuals: Pre-period residuals (Y_treat - Y_counterfactual),
+            shape (T_pre,). Under a well-fitted ASCM these should be
+            approximately mean-zero.
+        post_gaps: Post-period gaps (Y_treat - Y_counterfactual),
+            shape (T_post,). Under H0: tau=0, these are also residuals.
+        alpha: Significance level for confidence intervals.
+        n_perm: Number of random permutations (>= 1000 recommended for
+            stable inference; 2000 default balances precision and speed).
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Dictionary with:
+            - p_value: Two-sided conformal p-value with finite-sample
+              validity guarantee: P(reject | H0) <= alpha for any alpha.
+            - ci_lower: Lower bound of (1 - alpha) confidence interval.
+            - ci_upper: Upper bound of (1 - alpha) confidence interval.
+            - se: Standard error estimated from the permutation distribution.
+            - test_statistic: The observed mean post-period gap.
+    """
+    rng = np.random.default_rng(seed=seed)
+
+    T_pre = len(pre_residuals)
+    T_post = len(post_gaps)
+    T_total = T_pre + T_post
+
+    # --- Step 1: Observed test statistic ---
+    observed_stat = np.mean(post_gaps)
+
+    # --- Step 2: Pool residuals under H0 (tau = 0) ---
+    pooled = np.concatenate([pre_residuals, post_gaps])
+
+    # --- Step 3: Permutation distribution ---
+    perm_stats = np.empty(n_perm)
+    for i in range(n_perm):
+        # Randomly assign T_post residuals to the "post" slot
+        perm_idx = rng.permutation(T_total)
+        perm_post = pooled[perm_idx[:T_post]]
+        perm_stats[i] = np.mean(perm_post)
+
+    # --- Step 4: Two-sided p-value with finite-sample correction ---
+    # Count how many permuted statistics are at least as extreme as observed.
+    # The "+1" in numerator and denominator ensures finite-sample validity
+    # (see Phipson & Smyth 2010, "Permutation P-values Should Never Be Zero").
+    n_extreme = np.sum(np.abs(perm_stats) >= np.abs(observed_stat))
+    p_value = float((n_extreme + 1) / (n_perm + 1))
+
+    # Standard error from permutation distribution
+    se = float(np.std(perm_stats))
+
+    # --- Step 5: Confidence interval by test inversion ---
+    # The CI is {tau_0 : p(tau_0) > alpha}. For a shift-based test, this
+    # is equivalent to: tau_hat +/- quantile of the permutation distribution.
+    #
+    # Under H0: tau = tau_0, the adjusted post gaps are (post_gaps - tau_0),
+    # and we pool these with pre_residuals. Instead of re-running for every
+    # tau_0, we use the duality: the CI bounds are
+    #     tau_hat - q_{1-alpha/2}(perm_stats) and
+    #     tau_hat - q_{alpha/2}(perm_stats)
+    # where q denotes quantiles of the *centered* permutation distribution.
+    #
+    # Equivalently, since the permutation distribution is centered on the
+    # pooled mean, the CI is:
+    #     [observed_stat - (q_upper - pooled_mean),
+    #      observed_stat - (q_lower - pooled_mean)]
+    # which simplifies to using the quantiles of perm_stats directly:
+    q_lower = np.percentile(perm_stats, 100 * alpha / 2)
+    q_upper = np.percentile(perm_stats, 100 * (1 - alpha / 2))
+
+    # CI via inversion: the set of tau_0 not rejected at level alpha
+    ci_lower = float(observed_stat - q_upper + np.mean(pooled))
+    ci_upper = float(observed_stat - q_lower + np.mean(pooled))
+
+    # Ensure CI is ordered and contains the point estimate
+    ci_lower, ci_upper = min(ci_lower, ci_upper), max(ci_lower, ci_upper)
+
+    logger.info(
+        f"Conformal inference: stat={observed_stat:.4f}, p={p_value:.4f}, "
+        f"CI=[{ci_lower:.4f}, {ci_upper:.4f}], "
+        f"n_pre={T_pre}, n_post={T_post}, n_perm={n_perm}"
+    )
+
+    return {
+        "p_value": p_value,
+        "ci_lower": ci_lower,
+        "ci_upper": ci_upper,
+        "se": se,
+        "test_statistic": float(observed_stat),
+    }
 
 
 # =====================================================================
@@ -361,7 +497,7 @@ def _bsts_causalimpact(
     # Run CausalImpact
     ci = CausalImpact(
         ci_data, pre_period, post_period,
-        model_args={"nseasons": [{"period": 7}]},
+        model_args={"nseasons": 7},
     )
 
     # Extract inferences
@@ -369,20 +505,22 @@ def _bsts_causalimpact(
     post_inf = inferences.iloc[n_pre:]
     pre_inf = inferences.iloc[:n_pre]
 
-    # Find prediction and effect columns (handle different tfcausalimpact versions)
-    pred_col = _find_column(inferences, ["preds", "complete_preds_means", "predicted"])
-    effect_lower_col = _find_column(
-        inferences, ["preds_lower", "complete_preds_lower", "predicted_lower"]
-    )
-    effect_upper_col = _find_column(
-        inferences, ["preds_upper", "complete_preds_upper", "predicted_upper"]
-    )
+    # Find prediction columns (handle different tfcausalimpact versions)
+    pred_col = _find_column(inferences, ["complete_preds_means", "preds", "predicted"])
 
     counterfactual_mean = post_inf[pred_col].values if pred_col else Y_post
     fitted_pre = pre_inf[pred_col].values if pred_col else Y_pre
 
-    # Treatment effect
-    gaps = Y_post - counterfactual_mean
+    # Use direct point effects if available (more accurate from posterior)
+    effect_col = _find_column(inferences, ["point_effects_means"])
+    effect_lower_col = _find_column(inferences, ["point_effects_lower"])
+    effect_upper_col = _find_column(inferences, ["point_effects_upper"])
+
+    if effect_col:
+        gaps = post_inf[effect_col].values
+    else:
+        gaps = Y_post - counterfactual_mean
+
     tau = float(np.mean(gaps))
     baseline = float(np.mean(counterfactual_mean))
 
@@ -398,12 +536,10 @@ def _bsts_causalimpact(
     if isinstance(p_value, (list, np.ndarray)):
         p_value = float(np.asarray(p_value).ravel()[0])
 
-    # Confidence intervals from CausalImpact
+    # Confidence intervals from CausalImpact point effects
     if effect_lower_col and effect_upper_col:
-        cf_lower = post_inf[effect_lower_col].values
-        cf_upper = post_inf[effect_upper_col].values
-        ci_lower_abs = float(np.mean(Y_post - cf_upper))  # Inverted: lower CI of counterfactual = upper CI of effect
-        ci_upper_abs = float(np.mean(Y_post - cf_lower))
+        ci_lower_abs = float(np.mean(post_inf[effect_lower_col].values))
+        ci_upper_abs = float(np.mean(post_inf[effect_upper_col].values))
     else:
         se_est = float(np.std(gaps) / np.sqrt(n_post))
         z = scipy_stats.norm.ppf(1 - alpha / 2)

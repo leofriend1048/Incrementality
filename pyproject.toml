@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "incrementality"
-version = "0.2.0"
+version = "0.3.0"
 description = "Geo holdout incrementality testing platform for Shopify and Amazon brands"
 requires-python = ">=3.10"
 dependencies = [
-    "pandas>=2.0",
+    "pandas>=2.0,<3.0",
     "numpy>=1.24",
     "scipy>=1.11",
     "statsmodels>=0.14",
