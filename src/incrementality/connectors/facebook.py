@@ -165,6 +165,12 @@ class FacebookConnector:
         resp.raise_for_status()
         return resp.json()
 
+    def _post(self, path: str, data: dict[str, Any] | None = None) -> dict:
+        url = f"{_GRAPH_API_BASE}/{path}"
+        resp = self.session.post(url, json=data or {}, timeout=self.DEFAULT_TIMEOUT)
+        resp.raise_for_status()
+        return resp.json()
+
     def fetch_campaigns(self) -> pd.DataFrame:
         """Fetch all campaigns in the ad account.
 
@@ -298,6 +304,175 @@ class FacebookConnector:
 
         logger.debug(f"No DMA code mapping for: {dma_name}")
         return None
+
+    # ------------------------------------------------------------------
+    # Targeting deployment (execute / revert)
+    # ------------------------------------------------------------------
+
+    def get_campaign_targeting(self, campaign_id: str) -> dict:
+        """Read current geo-targeting for a campaign.
+
+        Returns the full targeting spec including geo_locations and
+        excluded_geo_locations so it can be restored after the test.
+        """
+        data = self._get(campaign_id, params={"fields": "targeting,name,status"})
+        return data.get("targeting", {})
+
+    def get_adset_targeting(self, adset_id: str) -> dict:
+        """Read current geo-targeting for an ad set."""
+        data = self._get(adset_id, params={"fields": "targeting,name,status"})
+        return data.get("targeting", {})
+
+    def get_active_adsets(self, campaign_id: str) -> list[dict]:
+        """Get all active ad sets for a campaign.
+
+        Facebook targeting lives at the ad set level, not campaign level.
+        We need to modify each ad set to apply DMA exclusions.
+        """
+        data = self._get(
+            f"{campaign_id}/adsets",
+            params={
+                "fields": "id,name,status,targeting",
+                "limit": 500,
+                "filtering": json.dumps([
+                    {"field": "effective_status", "operator": "IN",
+                     "value": ["ACTIVE", "PAUSED"]}
+                ]),
+            },
+        )
+        return data.get("data", [])
+
+    def get_all_campaign_ids(self) -> list[str]:
+        """Get all active campaign IDs in the ad account."""
+        data = self._get(
+            f"{self.config.ad_account_id}/campaigns",
+            params={
+                "fields": "id,name,status",
+                "limit": 500,
+                "filtering": json.dumps([
+                    {"field": "effective_status", "operator": "IN",
+                     "value": ["ACTIVE", "PAUSED"]}
+                ]),
+            },
+        )
+        return [c["id"] for c in data.get("data", [])]
+
+    def deploy_holdout(
+        self,
+        holdout_dma_codes: list[str],
+        campaign_ids: list[str] | None = None,
+    ) -> dict[str, dict]:
+        """Deploy DMA holdout exclusions to Facebook ad sets.
+
+        Saves original targeting for each ad set before modifying, so it
+        can be reverted later. For channel-level tests, applies to ALL
+        active campaigns. For campaign-level, applies only to specified campaigns.
+
+        Args:
+            holdout_dma_codes: Nielsen DMA codes to exclude from ad delivery.
+            campaign_ids: Specific campaign IDs (None = all active campaigns).
+
+        Returns:
+            Dict mapping ad set IDs to their original targeting.
+        """
+        if campaign_ids is None:
+            campaign_ids = self.get_all_campaign_ids()
+            logger.info(f"Channel-level test: found {len(campaign_ids)} active campaigns")
+
+        original_targeting: dict[str, dict] = {}
+        exclusion_spec = get_exclusion_targeting_spec(holdout_dma_codes)
+        n_updated = 0
+
+        for campaign_id in campaign_ids:
+            adsets = self.get_active_adsets(campaign_id)
+            logger.info(
+                f"Campaign {campaign_id}: {len(adsets)} ad sets to update"
+            )
+
+            for adset in adsets:
+                adset_id = adset["id"]
+                current_targeting = adset.get("targeting", {})
+
+                # Save original targeting state
+                original_targeting[adset_id] = {
+                    "targeting": current_targeting.copy(),
+                    "campaign_id": campaign_id,
+                    "adset_name": adset.get("name", ""),
+                }
+
+                # Merge holdout exclusions into existing targeting
+                updated_targeting = current_targeting.copy()
+                existing_excluded = updated_targeting.get("excluded_geo_locations", {})
+                existing_markets = existing_excluded.get("geo_markets", [])
+
+                # Add holdout DMA exclusions (avoid duplicates)
+                existing_keys = {m.get("key") for m in existing_markets}
+                new_markets = [
+                    m for m in exclusion_spec["excluded_geo_locations"]["geo_markets"]
+                    if m["key"] not in existing_keys
+                ]
+                all_markets = existing_markets + new_markets
+
+                updated_targeting["excluded_geo_locations"] = {
+                    "geo_markets": all_markets,
+                }
+
+                # Apply the update
+                self._post(adset_id, data={
+                    "targeting": json.dumps(updated_targeting),
+                })
+                n_updated += 1
+                logger.info(
+                    f"  Updated ad set {adset_id} ({adset.get('name', '')}): "
+                    f"excluded {len(new_markets)} holdout DMAs"
+                )
+
+        logger.info(
+            f"Deployed holdout to {n_updated} ad sets across "
+            f"{len(campaign_ids)} campaigns. "
+            f"Excluding {len(holdout_dma_codes)} DMAs."
+        )
+        return original_targeting
+
+    def revert_holdout(self, original_targeting: dict[str, dict]) -> int:
+        """Revert ad sets back to their pre-test targeting.
+
+        Args:
+            original_targeting: Dict from deploy_holdout() mapping ad set IDs
+                                to their original targeting state.
+
+        Returns:
+            Number of ad sets successfully reverted.
+        """
+        n_reverted = 0
+        n_failed = 0
+
+        for adset_id, state in original_targeting.items():
+            try:
+                self._post(adset_id, data={
+                    "targeting": json.dumps(state["targeting"]),
+                })
+                n_reverted += 1
+                logger.info(
+                    f"Reverted ad set {adset_id} ({state.get('adset_name', '')})"
+                )
+            except Exception as e:
+                n_failed += 1
+                logger.error(
+                    f"FAILED to revert ad set {adset_id}: {e}. "
+                    f"Manual revert required!"
+                )
+
+        logger.info(
+            f"Reverted {n_reverted}/{len(original_targeting)} ad sets. "
+            f"{n_failed} failures."
+        )
+        if n_failed > 0:
+            logger.error(
+                f"WARNING: {n_failed} ad sets could not be reverted automatically. "
+                f"Check Facebook Ads Manager and restore geo targeting manually."
+            )
+        return n_reverted
 
 
 def get_dma_geo_targeting_spec(dma_codes: list[str]) -> dict:

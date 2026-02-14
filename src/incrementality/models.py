@@ -138,6 +138,11 @@ class TestDesign(BaseModel):
     # Statistical
     power_analysis: PowerAnalysisResult | None = None
     balance_score: float = 0.0  # 0-1, higher = better balance between cells
+    # Targeting deployment state — saved before deploy so we can revert
+    original_targeting: dict = Field(default_factory=dict)
+    deployed_campaign_ids: list[str] = Field(default_factory=list)
+    deployed_at: datetime | None = None
+    reverted_at: datetime | None = None
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     status: TestStatus = TestStatus.DESIGNED

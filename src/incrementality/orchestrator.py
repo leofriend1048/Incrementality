@@ -204,6 +204,85 @@ class TestOrchestrator:
         return design
 
     # ------------------------------------------------------------------
+    # Test execution (deploy / revert holdout targeting)
+    # ------------------------------------------------------------------
+
+    def execute_test(
+        self,
+        design: TestDesign,
+        campaign_ids: list[str] | None = None,
+    ) -> TestDesign:
+        """Deploy holdout DMA exclusions to the ad platform.
+
+        For channel-level tests: applies exclusions to ALL active campaigns.
+        For campaign-level tests: applies only to the specified campaigns.
+
+        Saves original targeting state so it can be reverted after the test.
+        """
+        from datetime import datetime
+
+        holdout_dmas = design.holdout_cell.dma_codes
+
+        # Determine which campaigns to target
+        if design.test_scope == TestScope.CAMPAIGN and design.campaign_ids:
+            campaign_ids = design.campaign_ids
+        # CLI can override with explicit campaign_ids arg
+
+        if design.ad_channel == AdChannel.FACEBOOK:
+            if not self._facebook:
+                raise ValueError("Facebook not configured. Run 'incrementality setup' first.")
+            original = self._facebook.deploy_holdout(holdout_dmas, campaign_ids)
+            design.original_targeting = original
+            design.deployed_campaign_ids = campaign_ids or []
+        elif design.ad_channel == AdChannel.YOUTUBE:
+            if not self._youtube:
+                raise ValueError("YouTube/Google Ads not configured. Run 'incrementality setup' first.")
+            original = self._youtube.deploy_holdout(holdout_dmas, campaign_ids)
+            design.original_targeting = original
+            design.deployed_campaign_ids = campaign_ids or []
+        else:
+            raise ValueError(f"Unsupported ad channel: {design.ad_channel}")
+
+        design.deployed_at = datetime.utcnow()
+        design.status = TestStatus.RUNNING
+        self._save_design(design)
+
+        logger.info(
+            f"Test {design.test_id} deployed: {len(holdout_dmas)} DMAs excluded "
+            f"from {design.ad_channel.value}. Reverts at end of test."
+        )
+        return design
+
+    def revert_test(self, design: TestDesign) -> TestDesign:
+        """Revert holdout DMA exclusions, restoring original targeting.
+
+        Should be called after the test period ends (or to abort early).
+        """
+        from datetime import datetime
+
+        if not design.original_targeting:
+            raise ValueError(
+                f"Test {design.test_id} has no saved targeting state. "
+                f"Was it deployed with 'incrementality execute'?"
+            )
+
+        if design.ad_channel == AdChannel.FACEBOOK:
+            if not self._facebook:
+                raise ValueError("Facebook not configured.")
+            self._facebook.revert_holdout(design.original_targeting)
+        elif design.ad_channel == AdChannel.YOUTUBE:
+            if not self._youtube:
+                raise ValueError("YouTube/Google Ads not configured.")
+            self._youtube.revert_holdout(design.original_targeting)
+
+        design.reverted_at = datetime.utcnow()
+        design.status = TestStatus.COMPLETED
+        self._save_design(design)
+
+        logger.info(f"Test {design.test_id} reverted. Original targeting restored.")
+        return design
+
+    # ------------------------------------------------------------------
     # Test analysis (production pipeline)
     # ------------------------------------------------------------------
 

@@ -300,6 +300,179 @@ def analyze(ctx: click.Context, test_id: str, data_dir: str | None) -> None:
     spacer()
 
 
+# ── Execute Command ──────────────────────────────────────────────────────────
+
+@cli.command()
+@click.option("--test-id", required=True, help="Test ID to deploy")
+@click.option("--campaigns", default=None,
+              help="Comma-separated campaign IDs (overrides test design)")
+@click.option("--yes", is_flag=True, help="Skip confirmation prompt")
+@click.pass_context
+def execute(
+    ctx: click.Context,
+    test_id: str,
+    campaigns: str | None,
+    yes: bool,
+) -> None:
+    """Deploy holdout DMA exclusions to the ad platform.
+
+    Automatically excludes holdout DMAs from ad delivery by updating
+    geo-targeting on campaigns via the Facebook/Google Ads API.
+
+    For channel-level tests: applies to ALL active campaigns.
+    For campaign-level tests: applies to the specified campaigns.
+
+    Original targeting is saved so it can be reverted with:
+        incrementality revert --test-id <test-id>
+    """
+    from incrementality.orchestrator import TestOrchestrator
+
+    banner()
+
+    config = ctx.obj["config"]
+    orchestrator = TestOrchestrator(config)
+
+    # Load test design
+    try:
+        with step("Loading test design"):
+            test_design = orchestrator.load_design(test_id)
+        done(f"Loaded [accent]{test_design.name}[/accent]")
+    except FileNotFoundError:
+        fail(f"Test [accent]{test_id}[/accent] not found.")
+        spacer()
+        sys.exit(1)
+
+    if test_design.status == "running":
+        warning("This test is already deployed!")
+        info("Run [accent]incrementality revert --test-id "
+             f"{test_id}[/accent] to revert first.")
+        spacer()
+        sys.exit(1)
+
+    campaign_ids = campaigns.split(",") if campaigns else None
+    holdout_dmas = test_design.holdout_cell.dma_codes
+
+    # Show what will happen
+    section("Deployment Plan")
+    kv("Channel", f"[accent]{test_design.ad_channel.value.title()}[/accent]")
+    kv("Holdout DMAs", f"[heading]{len(holdout_dmas)}[/heading]")
+    kv("Scope", "All active campaigns" if campaign_ids is None
+       else f"Campaigns: {', '.join(campaign_ids)}")
+    kv("Duration", f"{test_design.duration_weeks} weeks")
+    if test_design.recommended_start_date:
+        kv("Start", str(test_design.recommended_start_date))
+        kv("End", str(test_design.recommended_end_date))
+    spacer()
+
+    warning("This will modify live ad targeting!")
+    info(f"  {len(holdout_dmas)} DMAs will be EXCLUDED from "
+         f"{test_design.ad_channel.value.title()} ad delivery.")
+    info("  Original targeting is saved and can be reverted with:")
+    info(f"    [accent]incrementality revert --test-id {test_id}[/accent]")
+    spacer()
+
+    if not yes:
+        if not click.confirm(click.style("    Proceed with deployment?", bold=True)):
+            info("Aborted.")
+            spacer()
+            return
+
+    try:
+        with step("Deploying holdout exclusions"):
+            orchestrator.execute_test(test_design, campaign_ids)
+    except Exception as e:
+        fail(f"Deployment failed: {e}")
+        info("No changes were made (or partially applied). Check the ad platform.")
+        spacer()
+        sys.exit(1)
+
+    spacer()
+    done("Holdout deployed successfully!")
+    kv("Status", "[ok]● RUNNING[/ok]")
+    kv("Deployed at", str(test_design.deployed_at))
+    spacer()
+    info("When the test ends, revert targeting with:")
+    info(f"  [accent]incrementality revert --test-id {test_id}[/accent]")
+    spacer()
+
+
+# ── Revert Command ───────────────────────────────────────────────────────────
+
+@cli.command()
+@click.option("--test-id", required=True, help="Test ID to revert")
+@click.option("--yes", is_flag=True, help="Skip confirmation prompt")
+@click.pass_context
+def revert(ctx: click.Context, test_id: str, yes: bool) -> None:
+    """Revert holdout DMA exclusions, restoring original ad targeting.
+
+    Run this after the test period ends to restore campaigns to their
+    pre-test geo-targeting state.
+    """
+    from incrementality.orchestrator import TestOrchestrator
+
+    banner()
+
+    config = ctx.obj["config"]
+    orchestrator = TestOrchestrator(config)
+
+    try:
+        with step("Loading test design"):
+            test_design = orchestrator.load_design(test_id)
+        done(f"Loaded [accent]{test_design.name}[/accent]")
+    except FileNotFoundError:
+        fail(f"Test [accent]{test_id}[/accent] not found.")
+        spacer()
+        sys.exit(1)
+
+    if not test_design.original_targeting:
+        fail("No saved targeting state found.")
+        info("Was this test deployed with [accent]incrementality execute[/accent]?")
+        spacer()
+        sys.exit(1)
+
+    if test_design.reverted_at:
+        warning(f"This test was already reverted at {test_design.reverted_at}")
+        if not click.confirm(click.style("    Revert again?", bold=True)):
+            return
+
+    section("Revert Plan")
+    kv("Channel", f"[accent]{test_design.ad_channel.value.title()}[/accent]")
+    kv("Deployed at", str(test_design.deployed_at))
+    if test_design.ad_channel.value == "facebook":
+        kv("Ad sets to restore", str(len(test_design.original_targeting)))
+    else:
+        n_criteria = sum(
+            len(v) for v in test_design.original_targeting.values()
+            if isinstance(v, list)
+        )
+        kv("Exclusions to remove", str(n_criteria))
+    spacer()
+
+    if not yes:
+        if not click.confirm(click.style("    Proceed with revert?", bold=True)):
+            info("Aborted.")
+            spacer()
+            return
+
+    try:
+        with step("Reverting to original targeting"):
+            orchestrator.revert_test(test_design)
+    except Exception as e:
+        fail(f"Revert failed: {e}")
+        info("Some changes may not have been reverted. Check the ad platform manually.")
+        spacer()
+        sys.exit(1)
+
+    spacer()
+    done("Targeting reverted successfully!")
+    kv("Status", "[ok]● COMPLETED[/ok]")
+    kv("Reverted at", str(test_design.reverted_at))
+    spacer()
+    info("You can now analyze the test results:")
+    info(f"  [accent]incrementality analyze --test-id {test_id}[/accent]")
+    spacer()
+
+
 # ── List Command ──────────────────────────────────────────────────────────────
 
 @cli.command("list")

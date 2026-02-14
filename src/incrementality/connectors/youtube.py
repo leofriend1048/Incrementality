@@ -167,6 +167,152 @@ class YouTubeConnector:
         """Convenience: fetch spend for specific campaigns by DMA."""
         return self.fetch_spend_by_dma(start_date, end_date, campaign_ids)
 
+    # ------------------------------------------------------------------
+    # Targeting deployment (execute / revert)
+    # ------------------------------------------------------------------
+
+    def get_all_campaign_ids(self) -> list[str]:
+        """Get all active VIDEO campaign IDs."""
+        client = self._get_client()
+        service = client.get_service("GoogleAdsService")
+        query = """
+            SELECT campaign.id
+            FROM campaign
+            WHERE campaign.advertising_channel_type = 'VIDEO'
+            AND campaign.status IN ('ENABLED', 'PAUSED')
+        """
+        ids = []
+        response = service.search(customer_id=self.config.customer_id, query=query)
+        for row in response:
+            ids.append(str(row.campaign.id))
+        return ids
+
+    def get_campaign_geo_criteria(self, campaign_id: str) -> list[dict]:
+        """Read existing geo-targeting criteria for a campaign."""
+        client = self._get_client()
+        service = client.get_service("GoogleAdsService")
+        query = f"""
+            SELECT
+                campaign_criterion.resource_name,
+                campaign_criterion.location.geo_target_constant,
+                campaign_criterion.negative
+            FROM campaign_criterion
+            WHERE campaign_criterion.type = 'LOCATION'
+            AND campaign.id = {campaign_id}
+        """
+        criteria = []
+        response = service.search(customer_id=self.config.customer_id, query=query)
+        for row in response:
+            criteria.append({
+                "resource_name": row.campaign_criterion.resource_name,
+                "geo_target_constant": row.campaign_criterion.location.geo_target_constant,
+                "negative": row.campaign_criterion.negative,
+            })
+        return criteria
+
+    def deploy_holdout(
+        self,
+        holdout_dma_codes: list[str],
+        campaign_ids: list[str] | None = None,
+    ) -> dict[str, list[str]]:
+        """Deploy DMA holdout exclusions to Google Ads campaigns.
+
+        Adds negative location criteria for holdout DMAs. Saves the
+        resource names of created criteria so they can be removed on revert.
+
+        Returns:
+            Dict mapping campaign IDs to created criterion resource names.
+        """
+        client = self._get_client()
+        campaign_service = client.get_service("CampaignService")
+        criterion_service = client.get_service("CampaignCriterionService")
+
+        if campaign_ids is None:
+            campaign_ids = self.get_all_campaign_ids()
+            logger.info(
+                f"Channel-level test: found {len(campaign_ids)} VIDEO campaigns"
+            )
+
+        created_criteria: dict[str, list[str]] = {}
+
+        for campaign_id in campaign_ids:
+            existing = self.get_campaign_geo_criteria(campaign_id)
+            existing_constants = {
+                c["geo_target_constant"] for c in existing if c["negative"]
+            }
+
+            operations = []
+            for dma_code in holdout_dma_codes:
+                google_geo_id = _dma_to_google_geo_id(dma_code)
+                if not google_geo_id:
+                    logger.warning(f"No Google geo ID for DMA {dma_code}")
+                    continue
+
+                geo_constant = client.get_service(
+                    "GeoTargetConstantService"
+                ).geo_target_constant_path(google_geo_id)
+
+                if geo_constant in existing_constants:
+                    continue
+
+                operation = client.get_type("CampaignCriterionOperation")
+                criterion = operation.create
+                criterion.campaign = campaign_service.campaign_path(
+                    self.config.customer_id, campaign_id,
+                )
+                criterion.location.geo_target_constant = geo_constant
+                criterion.negative = True
+                operations.append(operation)
+
+            if operations:
+                response = criterion_service.mutate_campaign_criteria(
+                    customer_id=self.config.customer_id,
+                    operations=operations,
+                )
+                created_criteria[campaign_id] = [
+                    r.resource_name for r in response.results
+                ]
+                logger.info(
+                    f"Campaign {campaign_id}: excluded "
+                    f"{len(created_criteria[campaign_id])} holdout DMAs"
+                )
+            else:
+                created_criteria[campaign_id] = []
+
+        total = sum(len(v) for v in created_criteria.values())
+        logger.info(f"Deployed {total} DMA exclusions across {len(campaign_ids)} campaigns")
+        return created_criteria
+
+    def revert_holdout(self, created_criteria: dict[str, list[str]]) -> int:
+        """Remove holdout DMA exclusions added by deploy_holdout().
+
+        Returns number of criteria successfully removed.
+        """
+        client = self._get_client()
+        criterion_service = client.get_service("CampaignCriterionService")
+        n_reverted = 0
+
+        for campaign_id, resource_names in created_criteria.items():
+            if not resource_names:
+                continue
+            operations = []
+            for rn in resource_names:
+                op = client.get_type("CampaignCriterionOperation")
+                op.remove = rn
+                operations.append(op)
+            try:
+                criterion_service.mutate_campaign_criteria(
+                    customer_id=self.config.customer_id,
+                    operations=operations,
+                )
+                n_reverted += len(resource_names)
+                logger.info(f"Campaign {campaign_id}: removed {len(resource_names)} exclusions")
+            except Exception as e:
+                logger.error(f"FAILED to revert campaign {campaign_id}: {e}")
+
+        logger.info(f"Reverted {n_reverted} criteria total")
+        return n_reverted
+
 
 def get_dma_location_targeting(dma_codes: list[str]) -> list[dict]:
     """Build Google Ads location targeting for specific DMAs.
