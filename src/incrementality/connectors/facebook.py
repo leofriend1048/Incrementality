@@ -218,11 +218,14 @@ class FacebookConnector:
             params["filtering"] = json.dumps(filtering)
 
         all_records = []
+        unmapped_dmas: set[str] = set()
+        total_rows = 0
         path = f"{self.config.ad_account_id}/insights"
 
         while path:
             data = self._get(path, params)
             for row in data.get("data", []):
+                total_rows += 1
                 dma_name = row.get("dma", "")
                 dma_code = self._dma_name_to_code(dma_name)
                 if dma_code:
@@ -234,6 +237,8 @@ class FacebookConnector:
                         "impressions": int(row.get("impressions", 0)),
                         "clicks": int(row.get("clicks", 0)),
                     })
+                else:
+                    unmapped_dmas.add(dma_name)
             # Pagination
             paging = data.get("paging", {})
             next_url = paging.get("next")
@@ -242,6 +247,21 @@ class FacebookConnector:
                 params = {}
             else:
                 path = None  # type: ignore
+
+        # Log mapping coverage
+        if total_rows > 0:
+            n_mapped = len(all_records)
+            coverage_pct = n_mapped / total_rows
+            if unmapped_dmas:
+                logger.warning(
+                    f"Facebook DMA mapping: {n_mapped}/{total_rows} rows mapped "
+                    f"({coverage_pct:.0%}). {len(unmapped_dmas)} DMA names unmapped: "
+                    f"{sorted(unmapped_dmas)[:5]}"
+                )
+            else:
+                logger.info(
+                    f"Facebook: {n_mapped} rows, all DMAs mapped successfully"
+                )
 
         return pd.DataFrame(all_records)
 

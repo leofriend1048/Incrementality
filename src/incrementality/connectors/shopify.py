@@ -115,8 +115,26 @@ class ShopifyConnector:
         if orders.empty:
             return pd.DataFrame(columns=["date", "dma_code", "revenue", "orders"])
 
+        total_orders = len(orders)
+
         # Map zip codes to DMA codes
         orders["dma_code"] = orders["shipping_zip"].apply(zip_to_dma)
+
+        # Log mapping coverage before dropping
+        n_mapped = orders["dma_code"].notna().sum()
+        n_unmapped = total_orders - n_mapped
+        if n_unmapped > 0:
+            coverage_pct = n_mapped / total_orders
+            logger.warning(
+                f"Shopify zip-to-DMA mapping: {n_mapped}/{total_orders} orders mapped "
+                f"({coverage_pct:.0%}). {n_unmapped} orders dropped (no DMA for zip)."
+            )
+            if coverage_pct < 0.50:
+                logger.error(
+                    f"Less than 50% of Shopify orders map to DMAs. "
+                    f"Results will be unreliable. Check shipping address data."
+                )
+
         # Drop orders without DMA mapping
         orders = orders.dropna(subset=["dma_code"])
         # Only count paid orders

@@ -175,25 +175,51 @@ def design(
                 info("Trying cached data...")
                 data = orchestrator.load_cached_data()
 
-        # Show what we got
-        for src, df in (data or {}).items():
-            if not df.empty:
-                done(f"{src.title()}: [accent]{len(df)}[/accent] rows")
-            elif src in ("shopify",):
-                warning(f"{src.title()}: no data (check credentials)")
+        # Show what we got and validate
+        if data:
+            for src, df in data.items():
+                if not df.empty:
+                    n_dmas = df["dma_code"].nunique() if "dma_code" in df.columns else 0
+                    done(f"{src.title()}: [accent]{len(df)}[/accent] rows, "
+                         f"[accent]{n_dmas}[/accent] DMAs")
+                else:
+                    warning(f"{src.title()}: no data (check credentials/config)")
+
+            # Validate the selected channel has data
+            channel_key = channel  # facebook or youtube
+            if channel_key in data and data[channel_key].empty:
+                fail(f"No {channel.title()} spend data returned. "
+                     f"Cannot design a {channel.title()} test without spend data.")
+                info("Check: (1) API credentials, (2) ad account ID, (3) geo targeting")
+                spacer()
+                sys.exit(1)
+
+            if data.get("shopify", pd.DataFrame()).empty:
+                fail("No Shopify revenue data. Cannot design test.")
+                info("Check: (1) access token, (2) shop domain, (3) that orders exist")
+                spacer()
+                sys.exit(1)
         spacer()
 
-    with step("Running automatic test design"):
-        test_design = orchestrator.design_test(
-            ad_channel=ad_channel,
-            test_scope=test_scope,
-            measurement_scope=measurement_scope,
-            campaign_ids=campaign_ids,
-            test_name=name,
-            target_mde=target_mde,
-            data=data,
-            lookback_weeks=lookback_weeks,
-        )
+    try:
+        with step("Running automatic test design"):
+            test_design = orchestrator.design_test(
+                ad_channel=ad_channel,
+                test_scope=test_scope,
+                measurement_scope=measurement_scope,
+                campaign_ids=campaign_ids,
+                test_name=name,
+                target_mde=target_mde,
+                data=data,
+                lookback_weeks=lookback_weeks,
+            )
+    except ValueError as e:
+        spacer()
+        fail(f"Test design failed: {e}")
+        info("Try: (1) increase --lookback-weeks, (2) check data quality, "
+             "(3) run with --verbose for details")
+        spacer()
+        sys.exit(1)
 
     spacer()
     _print_design(test_design)
@@ -215,9 +241,22 @@ def analyze(ctx: click.Context, test_id: str, data_dir: str | None) -> None:
     config = ctx.obj["config"]
     orchestrator = TestOrchestrator(config)
 
-    with step("Loading test design"):
-        test_design = orchestrator.load_design(test_id)
-    done(f"Loaded [accent]{test_design.name}[/accent]")
+    # Load test design with friendly error
+    try:
+        with step("Loading test design"):
+            test_design = orchestrator.load_design(test_id)
+        done(f"Loaded [accent]{test_design.name}[/accent]")
+    except FileNotFoundError:
+        fail(f"Test [accent]{test_id}[/accent] not found.")
+        available = orchestrator.list_tests()
+        if available:
+            info("Available tests:")
+            for t in available:
+                info(f"  {t['test_id']}: {t['name']} ({t['status']})")
+        else:
+            info("No tests found. Run [accent]incrementality design[/accent] first.")
+        spacer()
+        sys.exit(1)
 
     pre_data = None
     post_data = None
@@ -231,20 +270,33 @@ def analyze(ctx: click.Context, test_id: str, data_dir: str | None) -> None:
             spend_path = csv_dir / "ad_spend.csv"
             if pre_path.exists():
                 pre_data = pd.read_csv(pre_path, parse_dates=["date"])
+            else:
+                warning(f"pre_period.csv not found in {data_dir}")
             if post_path.exists():
                 post_data = pd.read_csv(post_path, parse_dates=["date"])
+            else:
+                warning(f"post_period.csv not found in {data_dir}")
             if spend_path.exists():
                 ad_spend = pd.read_csv(spend_path, parse_dates=["date"])
+            else:
+                warning(f"ad_spend.csv not found in {data_dir} — iROAS will be $0")
 
-    with step("Running causal inference analysis"):
-        report = orchestrator.analyze_test(
-            test_design, pre_data, post_data, ad_spend,
-        )
+    try:
+        with step("Running causal inference analysis"):
+            report = orchestrator.analyze_test(
+                test_design, pre_data, post_data, ad_spend,
+            )
+    except Exception as e:
+        fail(f"Analysis failed: {e}")
+        info("Run with --verbose for detailed error info.")
+        spacer()
+        sys.exit(1)
 
     spacer()
+    report_path = Path(config.output_dir) / f"{test_id}_report.html"
     done(f"JSON + CSV saved to [accent]{config.output_dir}[/accent]")
-    done(f"HTML report: [accent]{config.output_dir}/{test_id}_report.html[/accent]")
-    info("Open the HTML file in a browser, or install weasyprint for PDF export.")
+    done(f"HTML report: [accent]{report_path}[/accent]")
+    info("Tip: run [accent]incrementality open {test_id}[/accent] to view the report")
     spacer()
 
 
@@ -826,6 +878,36 @@ def setup(output_path: str) -> None:
     spacer()
     console.print("    [accent]2.[/accent]  Or run a demo with synthetic data:")
     console.print("       [muted]incrementality demo[/muted]")
+    spacer()
+
+
+# ── Open Command ─────────────────────────────────────────────────────────────
+
+@cli.command("open")
+@click.argument("test_id")
+@click.pass_context
+def open_report(ctx: click.Context, test_id: str) -> None:
+    """Open a test report in the default browser."""
+    import webbrowser
+
+    config = ctx.obj["config"]
+    report_path = Path(config.output_dir) / f"{test_id}_report.html"
+
+    if not report_path.exists():
+        fail(f"Report not found: [accent]{report_path}[/accent]")
+        # Try to find any reports
+        output_dir = Path(config.output_dir)
+        if output_dir.exists():
+            reports = sorted(output_dir.glob("*_report.html"))
+            if reports:
+                info("Available reports:")
+                for r in reports:
+                    info(f"  {r.stem.replace('_report', '')}")
+        spacer()
+        sys.exit(1)
+
+    webbrowser.open(f"file://{report_path.absolute()}")
+    done(f"Opened [accent]{report_path}[/accent] in browser")
     spacer()
 
 
