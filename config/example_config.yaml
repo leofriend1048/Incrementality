@@ -1,0 +1,51 @@
+# Incrementality Testing Platform Configuration
+# Copy this to config.yaml and fill in your credentials.
+
+# --- Revenue Data Sources ---
+
+shopify:
+  shop_domain: "your-store.myshopify.com"
+  api_key: "your-api-key"
+  api_secret: "your-api-secret"
+  access_token: "shpat_xxxxxxxxxxxxxxxxxxxx"
+  api_version: "2024-01"
+
+amazon:
+  marketplace_id: "ATVPDKIKX0DER"  # US marketplace
+  seller_id: "your-seller-id"
+  refresh_token: "your-refresh-token"
+  client_id: "your-client-id"
+  client_secret: "your-client-secret"
+  region: "na"
+
+# --- Ad Platform Connectors ---
+
+facebook:
+  app_id: "your-app-id"
+  app_secret: "your-app-secret"
+  access_token: "your-access-token"
+  ad_account_id: "act_123456789"
+
+youtube:
+  client_id: "your-client-id"
+  client_secret: "your-client-secret"
+  refresh_token: "your-refresh-token"
+  customer_id: "123-456-7890"
+
+# --- Statistical Parameters ---
+
+statistical:
+  significance_level: 0.05        # Alpha (Type I error rate)
+  target_power: 0.80              # 1 - Beta (Type II error rate)
+  min_test_duration_weeks: 2      # Minimum test length
+  max_test_duration_weeks: 12     # Maximum test length
+  default_lookback_weeks: 12      # Historical data window
+  min_dmas_per_cell: 5            # Minimum DMAs in any cell
+  max_holdout_fraction: 0.50      # Max fraction of DMAs held out
+  target_holdout_fraction: 0.25   # Target holdout size (25%)
+  balance_tolerance: 0.10         # Max standardized mean difference
+
+# --- Directories ---
+
+data_dir: "./data"                # Where test data and designs are stored
+output_dir: "./output"            # Where reports are saved
