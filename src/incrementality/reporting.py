@@ -4,12 +4,14 @@ Generates comprehensive reports from test results including:
 - Test design summary
 - Incrementality results with confidence intervals
 - iROAS by platform (Shopify, Amazon, cross-platform)
+- Validation results (trust score, blockers, warnings)
+- Ensemble model details and weights
 - Recommendations for budget allocation
-- Visual summary tables
 """
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 from datetime import datetime
@@ -56,10 +58,8 @@ def generate_report(
         else 0
     )
 
-    # Organic baseline: holdout revenue scaled to treatment size
     organic_baseline = holdout_avg_daily * design.num_treatment_dmas * test_duration_days
 
-    # Generate recommendations
     recommendations = _generate_recommendations(
         incrementality, iroas, design, shopify_incrementality, amazon_incrementality,
     )
@@ -99,7 +99,6 @@ def _generate_recommendations(
     """Generate actionable recommendations from test results."""
     recs = []
 
-    # Significance
     if not incrementality.is_significant:
         recs.append(
             f"The test did NOT reach statistical significance (p={incrementality.p_value:.3f}). "
@@ -113,7 +112,6 @@ def _generate_recommendations(
             f"{incrementality.relative_lift:.1%} incremental lift."
         )
 
-    # iROAS interpretation
     if iroas.iroas > 0:
         if iroas.iroas >= 3.0:
             recs.append(
@@ -140,7 +138,6 @@ def _generate_recommendations(
             f"organic revenue. Investigate audience overlap and frequency capping."
         )
 
-    # Cross-platform effects
     if (
         design.measurement_scope == MeasurementScope.SHOPIFY_AND_AMAZON
         and shopify_inc
@@ -156,7 +153,7 @@ def _generate_recommendations(
         elif amazon_inc.relative_lift > 0:
             recs.append(
                 f"Positive but non-significant Amazon halo ({amazon_inc.relative_lift:.1%}). "
-                f"There may be cross-platform effects — run a longer test to confirm."
+                f"There may be cross-platform effects -- run a longer test to confirm."
             )
 
         if iroas.shopify_iroas > 0 and iroas.amazon_iroas > 0:
@@ -168,7 +165,6 @@ def _generate_recommendations(
                 f"Amazon accounts for {amazon_share:.0f}% of total incremental returns."
             )
 
-    # Campaign-level insights
     if design.test_scope == TestScope.CAMPAIGN and design.campaign_ids:
         recs.append(
             f"This was a campaign-level test for campaigns: {', '.join(design.campaign_ids)}. "
@@ -228,8 +224,18 @@ def print_report(report: TestReport) -> None:
     )
     results_table.add_row("Method", inc.method.replace("_", " ").title(), "")
     results_table.add_row("Effect Size (Cohen's d)", f"{inc.cohen_d:.3f}", "")
+    if inc.lift_likelihood > 0:
+        results_table.add_row(
+            "P(true lift > 0)",
+            f"{inc.lift_likelihood:.1%}",
+            "",
+        )
     console.print(results_table)
     console.print()
+
+    # Ensemble details
+    if report.estimator_results and len(report.estimator_results) > 1:
+        _print_ensemble_details(report)
 
     # iROAS
     iroas = report.iroas
@@ -255,7 +261,6 @@ def print_report(report: TestReport) -> None:
         f"[{iroas.iroas_lower_ci:.2f}x, {iroas.iroas_upper_ci:.2f}x]",
     )
 
-    # Platform breakdown
     if iroas.shopify_incremental_revenue > 0 or iroas.amazon_incremental_revenue > 0:
         iroas_table.add_row("", "")
         iroas_table.add_row(
@@ -324,12 +329,130 @@ def print_report(report: TestReport) -> None:
         console.print(cross_table)
         console.print()
 
+    # Validation report
+    if report.validation:
+        _print_validation(report)
+
     # Recommendations
     console.print(Panel(
         "\n".join(f"  {i+1}. {rec}" for i, rec in enumerate(report.recommendations)),
         title="Recommendations",
         border_style="yellow",
     ))
+    console.print()
+
+
+def _print_ensemble_details(report: TestReport) -> None:
+    """Print ensemble model details."""
+    ensemble_table = Table(title="Ensemble Model Details", border_style="dim")
+    ensemble_table.add_column("Estimator", style="bold")
+    ensemble_table.add_column("Weight", justify="right")
+    ensemble_table.add_column("Lift", justify="right")
+    ensemble_table.add_column("p-value", justify="right")
+    ensemble_table.add_column("Significant?", justify="right")
+    ensemble_table.add_column("L2", justify="right")
+    ensemble_table.add_column("R\u00b2", justify="right")
+
+    for name, result in report.estimator_results.items():
+        weight = report.estimator_weights.get(name, 0)
+        sig_style = "green" if result.is_significant else "red"
+        ensemble_table.add_row(
+            name.upper(),
+            f"{weight:.0%}",
+            f"{result.relative_lift:+.1%}",
+            f"{result.p_value:.4f}",
+            f"[{sig_style}]{'Yes' if result.is_significant else 'No'}[/{sig_style}]",
+            f"{result.l2_imbalance:.4f}" if result.l2_imbalance > 0 else "--",
+            f"{result.pre_period_r_squared:.3f}" if result.pre_period_r_squared > 0 else "--",
+        )
+
+    console.print(ensemble_table)
+    console.print()
+
+
+def _print_validation(report: TestReport) -> None:
+    """Print validation results with trust score."""
+    v = report.validation
+
+    # Trust score header
+    if v.is_trustworthy:
+        trust_style = "green"
+        trust_label = "TRUSTWORTHY"
+    else:
+        trust_style = "red"
+        trust_label = "NOT TRUSTWORTHY"
+
+    val_table = Table(title="Validation Results", border_style="dim")
+    val_table.add_column("Check", style="bold")
+    val_table.add_column("Result", justify="right")
+    val_table.add_column("Status", justify="right")
+
+    # Trust score
+    val_table.add_row(
+        "Trust Score",
+        f"[{trust_style}]{v.trust_score:.0f}/100[/{trust_style}]",
+        f"[{trust_style}]{trust_label}[/{trust_style}]",
+    )
+
+    # AA test
+    aa_style = "green" if v.aa_test_passed else "red"
+    val_table.add_row(
+        "AA Test (pre-period)",
+        f"p = {v.aa_test_p_value:.4f}",
+        f"[{aa_style}]{'PASS' if v.aa_test_passed else 'FAIL'}[/{aa_style}]",
+    )
+
+    # Pre-period fit
+    l2_style = "green" if v.l2_imbalance < 0.05 else ("yellow" if v.l2_imbalance < 0.10 else "red")
+    val_table.add_row(
+        "Pre-period L2 Imbalance",
+        f"{v.l2_imbalance:.4f}",
+        f"[{l2_style}]{'Good' if v.l2_imbalance < 0.05 else ('OK' if v.l2_imbalance < 0.10 else 'Poor')}[/{l2_style}]",
+    )
+
+    r2_style = "green" if v.pre_period_r_squared > 0.90 else ("yellow" if v.pre_period_r_squared > 0.80 else "red")
+    val_table.add_row(
+        "Pre-period R\u00b2",
+        f"{v.pre_period_r_squared:.3f}",
+        f"[{r2_style}]{'Good' if v.pre_period_r_squared > 0.90 else ('OK' if v.pre_period_r_squared > 0.80 else 'Poor')}[/{r2_style}]",
+    )
+
+    # Placebo tests
+    fpr_style = "green" if v.false_positive_rate < 0.10 else ("yellow" if v.false_positive_rate < 0.15 else "red")
+    val_table.add_row(
+        "Placebo Tests",
+        f"{v.num_placebo_tests} tests, {v.false_positive_rate:.0%} FPR",
+        f"[{fpr_style}]{'Good' if v.false_positive_rate < 0.10 else ('Elevated' if v.false_positive_rate < 0.15 else 'High')}[/{fpr_style}]",
+    )
+
+    # Estimator agreement
+    agree_style = "green" if v.estimator_agreement > 0.7 else ("yellow" if v.estimator_agreement > 0.5 else "red")
+    val_table.add_row(
+        "Estimator Agreement",
+        f"{v.estimator_agreement:.0%}",
+        f"[{agree_style}]{'Good' if v.estimator_agreement > 0.7 else ('Partial' if v.estimator_agreement > 0.5 else 'Disagree')}[/{agree_style}]",
+    )
+
+    console.print(val_table)
+
+    # Blockers
+    if v.blockers:
+        blocker_text = "\n".join(f"  [bold red]X[/bold red] {b}" for b in v.blockers)
+        console.print(Panel(
+            blocker_text,
+            title="BLOCKERS (Hard Stops)",
+            border_style="red",
+        ))
+
+    # Warnings
+    if v.warnings:
+        warning_text = "\n".join(f"  [yellow]![/yellow] {w}" for w in v.warnings)
+        console.print(Panel(
+            warning_text,
+            title="Warnings",
+            border_style="yellow",
+        ))
+
     console.print()
 
 
@@ -359,11 +482,13 @@ def save_report_csv(report: TestReport, output_dir: str | Path) -> Path:
         {"metric": "duration_weeks", "value": str(report.duration_weeks)},
         {"metric": "num_treatment_dmas", "value": str(report.num_treatment_dmas)},
         {"metric": "num_holdout_dmas", "value": str(report.num_holdout_dmas)},
+        {"metric": "method", "value": report.incrementality.method},
         {"metric": "incremental_lift", "value": f"{report.incrementality.relative_lift:.4f}"},
         {"metric": "lift_lower_ci", "value": f"{report.incrementality.lift_lower_ci:.4f}"},
         {"metric": "lift_upper_ci", "value": f"{report.incrementality.lift_upper_ci:.4f}"},
         {"metric": "p_value", "value": f"{report.incrementality.p_value:.6f}"},
         {"metric": "is_significant", "value": str(report.incrementality.is_significant)},
+        {"metric": "lift_likelihood", "value": f"{report.incrementality.lift_likelihood:.4f}"},
         {"metric": "iroas", "value": f"{report.iroas.iroas:.4f}"},
         {"metric": "iroas_lower_ci", "value": f"{report.iroas.iroas_lower_ci:.4f}"},
         {"metric": "iroas_upper_ci", "value": f"{report.iroas.iroas_upper_ci:.4f}"},
@@ -373,6 +498,29 @@ def save_report_csv(report: TestReport, output_dir: str | Path) -> Path:
         {"metric": "holdout_total_revenue", "value": f"{report.holdout_total_revenue:.2f}"},
         {"metric": "organic_baseline_revenue", "value": f"{report.organic_baseline_revenue:.2f}"},
     ]
+
+    # Validation metrics
+    if report.validation:
+        v = report.validation
+        rows.extend([
+            {"metric": "trust_score", "value": f"{v.trust_score:.1f}"},
+            {"metric": "is_trustworthy", "value": str(v.is_trustworthy)},
+            {"metric": "aa_test_passed", "value": str(v.aa_test_passed)},
+            {"metric": "aa_test_p_value", "value": f"{v.aa_test_p_value:.4f}"},
+            {"metric": "false_positive_rate", "value": f"{v.false_positive_rate:.4f}"},
+            {"metric": "num_placebo_tests", "value": str(v.num_placebo_tests)},
+            {"metric": "estimator_agreement", "value": f"{v.estimator_agreement:.4f}"},
+            {"metric": "l2_imbalance", "value": f"{v.l2_imbalance:.4f}"},
+            {"metric": "pre_period_r_squared", "value": f"{v.pre_period_r_squared:.4f}"},
+            {"metric": "num_blockers", "value": str(len(v.blockers))},
+        ])
+
+    # Ensemble details
+    for name, weight in report.estimator_weights.items():
+        rows.append({"metric": f"weight_{name}", "value": f"{weight:.4f}"})
+    for name, result in report.estimator_results.items():
+        rows.append({"metric": f"lift_{name}", "value": f"{result.relative_lift:.4f}"})
+        rows.append({"metric": f"p_value_{name}", "value": f"{result.p_value:.6f}"})
 
     if report.iroas.shopify_iroas > 0:
         rows.append({"metric": "shopify_iroas", "value": f"{report.iroas.shopify_iroas:.4f}"})
@@ -387,7 +535,6 @@ def save_report_csv(report: TestReport, output_dir: str | Path) -> Path:
             "value": f"{report.iroas.amazon_incremental_revenue:.2f}",
         })
 
-    import csv
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["metric", "value"])
         writer.writeheader()

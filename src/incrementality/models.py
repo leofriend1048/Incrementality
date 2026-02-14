@@ -108,6 +108,11 @@ class PowerAnalysisResult(BaseModel):
     baseline_variance: float
     baseline_mean_revenue: float
     effect_size_cohen_d: float
+    # Simulation-based fields (new)
+    simulated_power: float = 0.0  # Power from actual simulations
+    simulated_false_positive_rate: float = 0.0  # Empirical Type I error
+    num_simulations: int = 0  # How many sims were run
+    power_score: float = 0.0  # 0-100 composite score (Haus targets 85-90)
 
 
 class TestDesign(BaseModel):
@@ -170,7 +175,12 @@ class IncrementalityResult(BaseModel):
     # Effect size
     cohen_d: float
     # Method used
-    method: str  # "difference_in_differences", "synthetic_control", etc.
+    method: str  # "ascm", "bsts", "did", "synthetic_control", "ensemble"
+    # Model quality metrics (new)
+    l2_imbalance: float = 0.0  # Pre-period fit quality for SC methods
+    pre_period_r_squared: float = 0.0  # R² of pre-period fit
+    # Lift likelihood — Bayesian-style: P(true lift > 0)
+    lift_likelihood: float = 0.0
 
 
 class IncrementalROAS(BaseModel):
@@ -213,7 +223,61 @@ class TestReport(BaseModel):
     # Cross-platform (when measurement_scope includes both)
     shopify_incrementality: IncrementalityResult | None = None
     amazon_incrementality: IncrementalityResult | None = None
+    # Validation (new)
+    validation: "ValidationReport | None" = None
+    # Ensemble details (new)
+    estimator_results: dict[str, "IncrementalityResult"] = Field(default_factory=dict)
+    estimator_weights: dict[str, float] = Field(default_factory=dict)
     # Recommendations
     recommendations: list[str] = Field(default_factory=list)
     # Metadata
     generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PlaceboTestResult(BaseModel):
+    """Result of a single placebo test."""
+    placebo_type: str  # "in_time" or "in_space"
+    target_dma: str = ""  # For in-space placebos
+    placebo_date: date | None = None  # For in-time placebos
+    estimated_effect: float
+    p_value: float
+    is_false_positive: bool  # Did the placebo falsely detect an effect?
+
+
+class ValidationReport(BaseModel):
+    """Comprehensive validation of test results.
+
+    This is the safety net. Every field here protects you from
+    making an 8-figure decision on bad data.
+    """
+    # Pre-treatment fit
+    l2_imbalance: float  # Lower = better. Target < 0.10
+    pre_period_r_squared: float  # Target > 0.90
+    pre_period_mape: float = 0.0  # Mean absolute percentage error in pre-period
+    # Placebo tests
+    num_placebo_tests: int = 0
+    placebo_pass_rate: float = 0.0  # Fraction of placebos that correctly found no effect
+    false_positive_rate: float = 0.0  # Should be ~5% at alpha=0.05
+    placebo_results: list[PlaceboTestResult] = Field(default_factory=list)
+    # AA test (pre-period only — should find NO effect)
+    aa_test_p_value: float = 0.0  # Should be > 0.05
+    aa_test_passed: bool = False
+    # Estimator agreement
+    estimator_agreement: float = 0.0  # Do all methods agree? 0-1 scale
+    # Overall
+    is_trustworthy: bool = False  # Final verdict: safe to make decisions on?
+    trust_score: float = 0.0  # 0-100 composite
+    warnings: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)  # Hard stops
+
+
+class FeasibilityResult(BaseModel):
+    """Pre-test feasibility assessment. Gates whether a test should run."""
+    is_feasible: bool
+    power_score: float  # 0-100, need >= 85 to proceed
+    estimated_mde: float
+    estimated_duration_weeks: int
+    min_holdout_dmas: int
+    estimated_opportunity_cost: float  # $ lost from holdout
+    reasons: list[str] = Field(default_factory=list)  # Why feasible or not
+    recommendations: list[str] = Field(default_factory=list)

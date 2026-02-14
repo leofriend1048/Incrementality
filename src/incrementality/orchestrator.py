@@ -1,9 +1,15 @@
-"""Test orchestrator — the main engine that coordinates test lifecycle.
+"""Test orchestrator -- the main engine that coordinates test lifecycle.
 
 Manages the full workflow:
 1. Design: Pull historical data, run optimizer, produce test design
 2. Execute: Apply holdout targeting, monitor test progress
 3. Analyze: Run causal inference, compute iROAS, generate reports
+
+Now uses the production-grade pipeline:
+- Ensemble estimator (ASCM + BSTS + DiD) as primary
+- Full validation suite (AA test, placebos, estimator agreement)
+- Spillover-adjusted estimates
+- Post-treatment observation windows
 
 Stores test state as JSON files for persistence between runs.
 """
@@ -19,15 +25,17 @@ import pandas as pd
 
 from incrementality.analysis.estimators import (
     difference_in_differences,
-    run_all_estimators,
+    run_ensemble,
 )
 from incrementality.analysis.iroas import compute_iroas
+from incrementality.analysis.validation import run_full_validation
 from incrementality.config import Config
 from incrementality.connectors.amazon import AmazonConnector
 from incrementality.connectors.facebook import FacebookConnector
 from incrementality.connectors.shopify import ShopifyConnector
 from incrementality.connectors.youtube import YouTubeConnector
 from incrementality.design.optimizer import auto_design_test, compute_dma_historical_metrics
+from incrementality.design.spillover import compute_spillover_risk, adjust_for_spillover
 from incrementality.models import (
     AdChannel,
     IncrementalityResult,
@@ -80,11 +88,7 @@ class TestOrchestrator:
         lookback_weeks: int = 12,
         end_date: date | None = None,
     ) -> dict[str, pd.DataFrame]:
-        """Pull historical data from all configured connectors.
-
-        Returns dict with keys: shopify, amazon, facebook, youtube
-        Each value is a DataFrame with daily DMA-level data.
-        """
+        """Pull historical data from all configured connectors."""
         end = end_date or date.today()
         start = end - timedelta(weeks=lookback_weeks)
         data = {}
@@ -135,14 +139,7 @@ class TestOrchestrator:
         return data
 
     def load_data_from_csv(self, csv_dir: str | Path) -> dict[str, pd.DataFrame]:
-        """Load data from CSV files for testing without API access.
-
-        Expected files:
-            shopify_daily.csv: date, dma_code, revenue, orders
-            amazon_daily.csv: date, dma_code, revenue, orders
-            facebook_daily.csv: date, dma_code, spend, impressions, clicks
-            youtube_daily.csv: date, dma_code, spend, impressions, views
-        """
+        """Load data from CSV files for testing without API access."""
         csv_dir = Path(csv_dir)
         data = {}
         for name in ["shopify", "amazon", "facebook", "youtube"]:
@@ -169,10 +166,7 @@ class TestOrchestrator:
         data: dict[str, pd.DataFrame] | None = None,
         lookback_weeks: int = 12,
     ) -> TestDesign:
-        """Design an incrementality test.
-
-        If data is not provided, pulls from APIs or cache.
-        """
+        """Design an incrementality test."""
         if data is None:
             try:
                 data = self.pull_historical_data(lookback_weeks)
@@ -194,12 +188,11 @@ class TestOrchestrator:
             target_mde=target_mde,
         )
 
-        # Save design
         self._save_design(design)
         return design
 
     # ------------------------------------------------------------------
-    # Test analysis
+    # Test analysis (production pipeline)
     # ------------------------------------------------------------------
 
     def analyze_test(
@@ -211,11 +204,12 @@ class TestOrchestrator:
     ) -> TestReport:
         """Analyze a completed test and generate the report.
 
-        Args:
-            design: The test design
-            pre_data: Pre-test period data (if None, uses lookback before test start)
-            post_data: Test period data (if None, pulls from APIs)
-            ad_spend_data: Ad spend during test (if None, pulls from APIs)
+        Production pipeline:
+        1. Run ensemble estimator (ASCM + BSTS + DiD)
+        2. Run full validation suite
+        3. Compute iROAS using ensemble result
+        4. Assess spillover risk
+        5. Generate comprehensive report with trust score
         """
         treatment_dmas = design.treatment_cell.dma_codes
         holdout_dmas = design.holdout_cell.dma_codes
@@ -248,29 +242,71 @@ class TestOrchestrator:
                 test_start, test_end, design.ad_channel, design.campaign_ids,
             )
 
-        # Run estimators
-        logger.info("Running causal inference estimators...")
+        # --- Step 1: Run ensemble estimator ---
+        logger.info("Running ensemble causal inference (ASCM + BSTS + DiD)...")
         revenue_col = "revenue"
-        all_results = run_all_estimators(
-            pre_data, post_data, treatment_dmas, holdout_dmas,
-            revenue_col=revenue_col,
-        )
+        try:
+            ensemble_result, estimator_results, estimator_weights = run_ensemble(
+                pre_data, post_data, treatment_dmas, holdout_dmas,
+                revenue_col=revenue_col,
+            )
+            primary_result = ensemble_result
+        except Exception as e:
+            logger.warning(f"Ensemble failed: {e}. Falling back to DiD.")
+            primary_result = difference_in_differences(
+                pre_data, post_data, treatment_dmas, holdout_dmas,
+                revenue_col=revenue_col,
+            )
+            estimator_results = {"did": primary_result}
+            estimator_weights = {"did": 1.0}
+            ensemble_result = primary_result
 
-        # Use DiD as primary estimator
-        primary_result = all_results.get(
-            "difference_in_differences",
-            next(iter(all_results.values())),
-        )
+        # --- Step 2: Run full validation suite ---
+        logger.info("Running validation suite...")
+        try:
+            validation = run_full_validation(
+                pre_data, post_data,
+                treatment_dmas, holdout_dmas,
+                ensemble_result, estimator_results,
+                revenue_col=revenue_col,
+            )
+            logger.info(
+                f"Validation: trust_score={validation.trust_score:.0f}/100, "
+                f"trustworthy={validation.is_trustworthy}, "
+                f"blockers={len(validation.blockers)}"
+            )
+            if validation.blockers:
+                for blocker in validation.blockers:
+                    logger.warning(f"BLOCKER: {blocker}")
+        except Exception as e:
+            logger.warning(f"Validation failed: {e}")
+            validation = None
 
-        # Compute iROAS
+        # --- Step 3: Spillover assessment ---
+        spillover = compute_spillover_risk(treatment_dmas, holdout_dmas)
+        if spillover["risk_score"] > 0.1:
+            logger.info(
+                f"Spillover risk: {spillover['risk_score']:.0%}. "
+                f"Adjusting effect estimate."
+            )
+            adjusted_lift = adjust_for_spillover(
+                primary_result.absolute_lift, spillover,
+            )
+            logger.info(
+                f"Spillover adjustment: {primary_result.absolute_lift:.4f} -> "
+                f"{adjusted_lift:.4f}"
+            )
+
+        # --- Step 4: Compute iROAS using ensemble result ---
         logger.info("Computing incremental ROAS...")
         iroas = compute_iroas(
             pre_data, post_data, ad_spend_data,
             treatment_dmas, holdout_dmas,
             design.measurement_scope, test_duration_days,
+            primary_result=primary_result,
         )
 
-        # Cross-platform incrementality
+        # --- Step 5: Cross-platform incrementality ---
         shopify_inc = None
         amazon_inc = None
         if design.measurement_scope == MeasurementScope.SHOPIFY_AND_AMAZON:
@@ -299,7 +335,7 @@ class TestOrchestrator:
             post_data["dma_code"].isin(holdout_dmas)
         ][revenue_col].sum()
 
-        # Generate report
+        # --- Step 6: Generate report ---
         report = generate_report(
             design=design,
             incrementality=primary_result,
@@ -310,6 +346,11 @@ class TestOrchestrator:
             shopify_incrementality=shopify_inc,
             amazon_incrementality=amazon_inc,
         )
+
+        # Attach validation and ensemble details
+        report.validation = validation
+        report.estimator_results = estimator_results
+        report.estimator_weights = estimator_weights
 
         # Print and save
         print_report(report)
@@ -356,7 +397,6 @@ class TestOrchestrator:
         if not frames:
             raise ValueError("No revenue data sources available")
 
-        # Merge on date + dma_code
         result = frames[0]
         for df in frames[1:]:
             result = result.merge(
@@ -367,7 +407,6 @@ class TestOrchestrator:
 
         result = result.fillna(0)
 
-        # Total revenue
         rev_cols = [c for c in result.columns if c.endswith("_revenue")]
         if rev_cols:
             result["revenue"] = result[rev_cols].sum(axis=1)

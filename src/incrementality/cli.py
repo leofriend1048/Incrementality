@@ -300,8 +300,15 @@ def _print_design(design) -> None:
         table.add_row("", "")
         table.add_row("Min Detectable Effect", f"{pa.minimum_detectable_effect:.1%}")
         table.add_row("Statistical Power", f"{pa.statistical_power:.1%}")
+        if pa.simulated_power > 0:
+            table.add_row("Simulated Power", f"{pa.simulated_power:.1%}")
+            table.add_row("Simulated FPR", f"{pa.simulated_false_positive_rate:.1%}")
+            table.add_row("Num Simulations", str(pa.num_simulations))
         table.add_row("Significance Level", f"{pa.significance_level:.0%}")
         table.add_row("Cohen's d", f"{pa.effect_size_cohen_d:.3f}")
+        if pa.power_score > 0:
+            score_style = "green" if pa.power_score >= 85 else ("yellow" if pa.power_score >= 70 else "red")
+            table.add_row("Power Score", f"[{score_style}]{pa.power_score:.0f}/100[/{score_style}]")
 
     console.print(table)
 

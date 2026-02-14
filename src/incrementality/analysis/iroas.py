@@ -9,20 +9,20 @@ Supports:
 - Shopify-only iROAS
 - Amazon-only iROAS
 - Cross-platform halo effect measurement
+
+Uses ensemble estimator for production-grade estimates. Falls back to
+DiD only when ensemble is not available.
 """
 
 from __future__ import annotations
 
 import logging
-import math
 
 import numpy as np
 import pandas as pd
 from scipy import stats
 
-from incrementality.analysis.estimators import difference_in_differences
 from incrementality.models import (
-    CellType,
     IncrementalityResult,
     IncrementalROAS,
     MeasurementScope,
@@ -40,15 +40,10 @@ def compute_incremental_revenue(
 
     Returns: (incremental_revenue, lower_ci, upper_ci)
     """
-    # absolute_lift is per-DMA average daily lift
     total = lift_result.absolute_lift * num_treatment_dmas * test_duration_days
-    lower = lift_result.lift_lower_ci  # These are relative
+    lower = lift_result.lift_lower_ci
     upper = lift_result.lift_upper_ci
 
-    # Need absolute CI bounds
-    # lift_lower_ci and lift_upper_ci are relative lifts
-    # Convert back: absolute = relative * baseline * n_dmas * days
-    # We approximate using the same scaling
     baseline_per_dma_day = (
         lift_result.absolute_lift / lift_result.relative_lift
         if lift_result.relative_lift != 0
@@ -70,20 +65,21 @@ def compute_iroas(
     holdout_dmas: list[str],
     measurement_scope: MeasurementScope,
     test_duration_days: int,
+    primary_result: IncrementalityResult | None = None,
     alpha: float = 0.05,
 ) -> IncrementalROAS:
     """Compute incremental ROAS from test data.
 
     Args:
-        pre_data: Pre-test period daily data with columns
-                  [date, dma_code, revenue, shopify_revenue, amazon_revenue]
-        post_data: Test period daily data (same columns)
-        ad_spend_data: Ad spend during test period
-                       [date, dma_code, spend]
+        pre_data: Pre-test period daily data
+        post_data: Test period daily data
+        ad_spend_data: Ad spend during test period [date, dma_code, spend]
         treatment_dmas: Treatment cell DMA codes
         holdout_dmas: Holdout cell DMA codes
         measurement_scope: Which revenue to measure
         test_duration_days: Number of days in test period
+        primary_result: Pre-computed primary incrementality result (from ensemble).
+                        If None, falls back to running DiD.
         alpha: Significance level
     """
     # Total ad spend in treatment during test
@@ -92,7 +88,7 @@ def compute_iroas(
     ]["spend"].sum()
 
     if treatment_spend <= 0:
-        logger.warning("No ad spend in treatment group — cannot compute iROAS")
+        logger.warning("No ad spend in treatment group -- cannot compute iROAS")
         return IncrementalROAS(
             incremental_revenue=0,
             total_ad_spend=0,
@@ -104,11 +100,16 @@ def compute_iroas(
     n_treatment = len(treatment_dmas)
 
     # --- Overall incrementality ---
-    revenue_col = _get_revenue_col(measurement_scope)
-    overall_result = difference_in_differences(
-        pre_data, post_data, treatment_dmas, holdout_dmas,
-        revenue_col=revenue_col, alpha=alpha,
-    )
+    if primary_result is not None:
+        overall_result = primary_result
+    else:
+        # Fallback: run DiD
+        from incrementality.analysis.estimators import difference_in_differences
+        revenue_col = _get_revenue_col(measurement_scope)
+        overall_result = difference_in_differences(
+            pre_data, post_data, treatment_dmas, holdout_dmas,
+            revenue_col=revenue_col, alpha=alpha,
+        )
 
     inc_rev, inc_lower, inc_upper = compute_incremental_revenue(
         overall_result, n_treatment, test_duration_days,
@@ -128,45 +129,61 @@ def compute_iroas(
 
     # --- Platform-specific breakdown ---
     if measurement_scope == MeasurementScope.SHOPIFY_AND_AMAZON:
-        # Shopify-only iROAS
-        if "shopify_revenue" in post_data.columns:
-            try:
-                shopify_result = difference_in_differences(
-                    pre_data, post_data, treatment_dmas, holdout_dmas,
-                    revenue_col="shopify_revenue", alpha=alpha,
-                )
-                shopify_inc, _, _ = compute_incremental_revenue(
-                    shopify_result, n_treatment, test_duration_days,
-                )
-                result.shopify_incremental_revenue = float(shopify_inc)
-                result.shopify_iroas = float(shopify_inc / treatment_spend)
-            except Exception as e:
-                logger.warning(f"Shopify-specific iROAS failed: {e}")
-
-        # Amazon-only iROAS (halo effect!)
-        if "amazon_revenue" in post_data.columns:
-            try:
-                amazon_result = difference_in_differences(
-                    pre_data, post_data, treatment_dmas, holdout_dmas,
-                    revenue_col="amazon_revenue", alpha=alpha,
-                )
-                amazon_inc, _, _ = compute_incremental_revenue(
-                    amazon_result, n_treatment, test_duration_days,
-                )
-                result.amazon_incremental_revenue = float(amazon_inc)
-                result.amazon_iroas = float(amazon_inc / treatment_spend)
-            except Exception as e:
-                logger.warning(f"Amazon-specific iROAS failed: {e}")
-
+        _compute_platform_breakdown(
+            result, pre_data, post_data, treatment_dmas, holdout_dmas,
+            n_treatment, test_duration_days, treatment_spend, alpha,
+        )
     elif measurement_scope == MeasurementScope.SHOPIFY_ONLY:
         result.shopify_incremental_revenue = float(inc_rev)
         result.shopify_iroas = float(iroas)
-
     elif measurement_scope == MeasurementScope.AMAZON_ONLY:
         result.amazon_incremental_revenue = float(inc_rev)
         result.amazon_iroas = float(iroas)
 
     return result
+
+
+def _compute_platform_breakdown(
+    result: IncrementalROAS,
+    pre_data: pd.DataFrame,
+    post_data: pd.DataFrame,
+    treatment_dmas: list[str],
+    holdout_dmas: list[str],
+    n_treatment: int,
+    test_duration_days: int,
+    treatment_spend: float,
+    alpha: float,
+) -> None:
+    """Compute Shopify and Amazon iROAS breakdown."""
+    from incrementality.analysis.estimators import difference_in_differences
+
+    if "shopify_revenue" in post_data.columns:
+        try:
+            shopify_result = difference_in_differences(
+                pre_data, post_data, treatment_dmas, holdout_dmas,
+                revenue_col="shopify_revenue", alpha=alpha,
+            )
+            shopify_inc, _, _ = compute_incremental_revenue(
+                shopify_result, n_treatment, test_duration_days,
+            )
+            result.shopify_incremental_revenue = float(shopify_inc)
+            result.shopify_iroas = float(shopify_inc / treatment_spend)
+        except Exception as e:
+            logger.warning(f"Shopify-specific iROAS failed: {e}")
+
+    if "amazon_revenue" in post_data.columns:
+        try:
+            amazon_result = difference_in_differences(
+                pre_data, post_data, treatment_dmas, holdout_dmas,
+                revenue_col="amazon_revenue", alpha=alpha,
+            )
+            amazon_inc, _, _ = compute_incremental_revenue(
+                amazon_result, n_treatment, test_duration_days,
+            )
+            result.amazon_incremental_revenue = float(amazon_inc)
+            result.amazon_iroas = float(amazon_inc / treatment_spend)
+        except Exception as e:
+            logger.warning(f"Amazon-specific iROAS failed: {e}")
 
 
 def _get_revenue_col(scope: MeasurementScope) -> str:
@@ -176,4 +193,4 @@ def _get_revenue_col(scope: MeasurementScope) -> str:
     elif scope == MeasurementScope.AMAZON_ONLY:
         return "amazon_revenue"
     else:
-        return "revenue"  # Combined total
+        return "revenue"
