@@ -424,13 +424,19 @@ def _simulate_test_period(
     amazon["date"] = pd.to_datetime(amazon["date"]) if not amazon.empty else amazon
     ad_data["date"] = pd.to_datetime(ad_data["date"]) if not ad_data.empty else ad_data
 
+    min_date = shopify["date"].min()
     max_date = shopify["date"].max()
-    test_weeks = design.duration_weeks
-    pre_weeks = min(8, test_weeks * 2)
+    total_days = (max_date - min_date).days
+
+    # Split available data: ~60% pre-period, ~40% test period
+    # Ensure at least 14 days for each period
+    test_days = min(total_days * 2 // 5, total_days - 14)
+    test_days = max(test_days, 14)
+    pre_days = total_days - test_days
 
     test_end = max_date
-    test_start = test_end - timedelta(weeks=test_weeks)
-    pre_start = test_start - timedelta(weeks=pre_weeks)
+    test_start = test_end - timedelta(days=test_days)
+    pre_start = min_date
 
     # Pre-period data
     pre_mask = (shopify["date"] >= pd.Timestamp(pre_start)) & (shopify["date"] < pd.Timestamp(test_start))
@@ -508,6 +514,121 @@ def _simulate_test_period(
         spend_data = pd.DataFrame(records)
 
     return pre_data, post_data, spend_data
+
+
+@cli.group()
+def boundaries() -> None:
+    """Manage DMA boundary data for spillover analysis."""
+    pass
+
+
+@boundaries.command("compute")
+@click.option("--input", "geojson_path", required=True,
+              type=click.Path(exists=True),
+              help="Path to DMA boundaries GeoJSON/TopoJSON file")
+@click.option("--dma-field", default=None,
+              help="Column name containing DMA codes (auto-detected if omitted)")
+@click.option("--buffer-miles", type=float, default=1.0,
+              help="Buffer distance in miles for adjacency detection")
+@click.option("--output-dir", type=click.Path(), default="./data",
+              help="Directory to save computed adjacency")
+def boundaries_compute(
+    geojson_path: str,
+    dma_field: str | None,
+    buffer_miles: float,
+    output_dir: str,
+) -> None:
+    """Compute DMA adjacency from a GeoJSON boundary file.
+
+    Downloads a DMA boundaries GeoJSON and computes which DMAs share
+    borders using polygon intersection. Results are cached for use
+    by the spillover analysis.
+
+    Example:
+        incrementality boundaries compute --input dma_boundaries.geojson
+    """
+    from incrementality.design.dma_boundaries import compute_adjacency_from_geojson
+
+    console.print(Panel(
+        f"Input: [bold]{geojson_path}[/bold]\n"
+        f"Buffer: {buffer_miles} miles\n"
+        f"Output: {output_dir}/dma_adjacency.json",
+        title="Computing DMA Adjacency",
+        border_style="blue",
+    ))
+
+    try:
+        adjacency = compute_adjacency_from_geojson(
+            geojson_path,
+            dma_code_field=dma_field,
+            buffer_miles=buffer_miles,
+            cache_dir=output_dir,
+        )
+        n_edges = sum(len(v) for v in adjacency.values()) // 2
+        console.print(
+            f"\n[green]Computed adjacency for {len(adjacency)} DMAs "
+            f"with {n_edges} border pairs[/green]"
+        )
+        # Show sample
+        sample_dmas = list(adjacency.keys())[:5]
+        for dma in sample_dmas:
+            neighbors = adjacency[dma]
+            console.print(f"  {dma}: {len(neighbors)} neighbors -> {neighbors[:5]}")
+        if len(adjacency) > 5:
+            console.print(f"  ... and {len(adjacency) - 5} more DMAs")
+    except ImportError:
+        console.print(
+            "[red]GeoPandas is required for polygon-based adjacency.[/red]\n"
+            "Install with: pip install 'incrementality[geo]'"
+        )
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+
+
+@boundaries.command("centroid")
+@click.option("--max-distance", type=float, default=175.0,
+              help="Maximum centroid distance in miles for adjacency")
+@click.option("--output-dir", type=click.Path(), default="./data",
+              help="Directory to save computed adjacency")
+def boundaries_centroid(max_distance: float, output_dir: str) -> None:
+    """Compute DMA adjacency from centroid distances (no GeoJSON needed).
+
+    Uses approximate centroid locations for all 210 DMAs and considers
+    DMAs within the specified distance as adjacent. This is a reasonable
+    fallback when polygon boundary data is not available.
+    """
+    import json as json_mod
+    from incrementality.design.dma_boundaries import compute_adjacency_from_centroids
+
+    console.print(Panel(
+        f"Max distance: {max_distance} miles\n"
+        f"Output: {output_dir}/dma_adjacency.json",
+        title="Computing Centroid-Based DMA Adjacency",
+        border_style="blue",
+    ))
+
+    adjacency = compute_adjacency_from_centroids(max_distance_miles=max_distance)
+    n_edges = sum(len(v) for v in adjacency.values()) // 2
+
+    # Save
+    out_path = Path(output_dir) / "dma_adjacency.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w") as f:
+        json_mod.dump(adjacency, f, indent=2)
+
+    console.print(
+        f"\n[green]Computed adjacency for {len(adjacency)} DMAs "
+        f"with {n_edges} border pairs[/green]"
+    )
+    console.print(f"Saved to: {out_path}")
+
+    # Stats
+    neighbor_counts = [len(v) for v in adjacency.values()]
+    console.print(
+        f"\nAvg neighbors per DMA: {np.mean(neighbor_counts):.1f}\n"
+        f"Max neighbors: {max(neighbor_counts)}\n"
+        f"DMAs with no neighbors: {sum(1 for c in neighbor_counts if c == 0)}"
+    )
 
 
 if __name__ == "__main__":

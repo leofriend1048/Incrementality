@@ -275,20 +275,200 @@ def bayesian_structural_time_series(
 ) -> IncrementalityResult:
     """Bayesian Structural Time Series estimator (CausalImpact-style).
 
-    Builds a state-space model where:
-    - State: local level + local trend + seasonality
-    - Covariates: holdout DMA time series (selected via spike-and-slab analog)
+    Uses tfcausalimpact (Google's CausalImpact ported to Python with
+    TensorFlow Probability) as the primary implementation. This gives us:
+    - Proper spike-and-slab priors for covariate selection
+    - Full Bayesian posterior for credible intervals
+    - Robust counterfactual prediction
 
-    The model is fit on pre-period data, then predicts the counterfactual
-    in the post-period. The gap = causal effect.
+    Falls back to statsmodels UnobservedComponents if tfcausalimpact
+    is not installed.
+    """
+    try:
+        return _bsts_causalimpact(
+            pre_data, post_data, treatment_dmas, holdout_dmas,
+            revenue_col, dma_col, date_col, alpha,
+        )
+    except ImportError:
+        logger.info("tfcausalimpact not installed, using statsmodels BSTS approximation")
+        return _bsts_statsmodels(
+            pre_data, post_data, treatment_dmas, holdout_dmas,
+            revenue_col, dma_col, date_col, alpha,
+        )
+    except Exception as e:
+        logger.warning(f"CausalImpact failed ({e}), falling back to statsmodels BSTS")
+        return _bsts_statsmodels(
+            pre_data, post_data, treatment_dmas, holdout_dmas,
+            revenue_col, dma_col, date_col, alpha,
+        )
 
-    We implement a practical version using statsmodels UnobservedComponents
-    with holdout covariates, since the full Bayesian MCMC is too heavy
-    for a CLI tool. Inference via simulation from the predictive distribution.
+
+def _bsts_causalimpact(
+    pre_data: pd.DataFrame,
+    post_data: pd.DataFrame,
+    treatment_dmas: list[str],
+    holdout_dmas: list[str],
+    revenue_col: str,
+    dma_col: str,
+    date_col: str,
+    alpha: float,
+) -> IncrementalityResult:
+    """Real CausalImpact BSTS using tfcausalimpact.
+
+    tfcausalimpact implements the full Brodersen et al. (2015) model:
+    - Structural time series with local linear trend
+    - Spike-and-slab priors for automatic covariate selection
+    - Full posterior inference via TensorFlow Probability
+    """
+    from causalimpact import CausalImpact
+
+    Y_pre, Y_post, X_pre, X_post, pre_dates, post_dates = _build_panel_matrices(
+        pre_data, post_data, treatment_dmas, holdout_dmas,
+        revenue_col, dma_col, date_col,
+    )
+
+    n_pre = len(pre_dates)
+    n_post = len(post_dates)
+
+    if n_pre < 14:
+        raise ValueError(f"CausalImpact needs >= 14 pre-periods, got {n_pre}")
+
+    # Select top covariates by correlation (CausalImpact's spike-and-slab
+    # handles selection, but pre-filtering to top 10 speeds convergence)
+    n_controls = X_pre.shape[1]
+    correlations = np.array([
+        abs(np.corrcoef(Y_pre, X_pre[:, j])[0, 1])
+        if np.std(X_pre[:, j]) > 0 else 0
+        for j in range(n_controls)
+    ])
+    correlations = np.nan_to_num(correlations)
+    top_k = min(10, n_controls)
+    top_indices = np.argsort(correlations)[-top_k:]
+
+    # Build CausalImpact input: first column = response, rest = covariates
+    Y_full = np.concatenate([Y_pre, Y_post])
+    X_selected = np.vstack([X_pre[:, top_indices], X_post[:, top_indices]])
+
+    cols = ["y"] + [f"x{i}" for i in range(top_k)]
+    ci_data = pd.DataFrame(
+        np.column_stack([Y_full, X_selected]),
+        columns=cols,
+    )
+
+    pre_period = [0, n_pre - 1]
+    post_period = [n_pre, n_pre + n_post - 1]
+
+    # Run CausalImpact
+    ci = CausalImpact(
+        ci_data, pre_period, post_period,
+        model_args={"nseasons": [{"period": 7}]},
+    )
+
+    # Extract inferences
+    inferences = ci.inferences
+    post_inf = inferences.iloc[n_pre:]
+    pre_inf = inferences.iloc[:n_pre]
+
+    # Find prediction and effect columns (handle different tfcausalimpact versions)
+    pred_col = _find_column(inferences, ["preds", "complete_preds_means", "predicted"])
+    effect_lower_col = _find_column(
+        inferences, ["preds_lower", "complete_preds_lower", "predicted_lower"]
+    )
+    effect_upper_col = _find_column(
+        inferences, ["preds_upper", "complete_preds_upper", "predicted_upper"]
+    )
+
+    counterfactual_mean = post_inf[pred_col].values if pred_col else Y_post
+    fitted_pre = pre_inf[pred_col].values if pred_col else Y_pre
+
+    # Treatment effect
+    gaps = Y_post - counterfactual_mean
+    tau = float(np.mean(gaps))
+    baseline = float(np.mean(counterfactual_mean))
+
+    # Pre-period fit quality
+    pre_residuals = Y_pre - fitted_pre
+    ss_res = np.sum(pre_residuals ** 2)
+    ss_tot = np.sum((Y_pre - Y_pre.mean()) ** 2)
+    r_squared = float(1 - ss_res / ss_tot) if ss_tot > 0 else 0
+    l2_imbalance = float(np.sqrt(np.mean(pre_residuals ** 2)) / np.mean(np.abs(Y_pre)))
+
+    # P-value from CausalImpact posterior
+    p_value = float(getattr(ci, "p_value", 0.5))
+    if isinstance(p_value, (list, np.ndarray)):
+        p_value = float(np.asarray(p_value).ravel()[0])
+
+    # Confidence intervals from CausalImpact
+    if effect_lower_col and effect_upper_col:
+        cf_lower = post_inf[effect_lower_col].values
+        cf_upper = post_inf[effect_upper_col].values
+        ci_lower_abs = float(np.mean(Y_post - cf_upper))  # Inverted: lower CI of counterfactual = upper CI of effect
+        ci_upper_abs = float(np.mean(Y_post - cf_lower))
+    else:
+        se_est = float(np.std(gaps) / np.sqrt(n_post))
+        z = scipy_stats.norm.ppf(1 - alpha / 2)
+        ci_lower_abs = tau - z * se_est
+        ci_upper_abs = tau + z * se_est
+
+    # Standard error from CI width
+    z = scipy_stats.norm.ppf(1 - alpha / 2)
+    se = (ci_upper_abs - ci_lower_abs) / (2 * z) if z > 0 else float(np.std(gaps))
+
+    # Relative lift
+    relative_lift = tau / baseline if baseline > 0 else 0
+    rel_lower = ci_lower_abs / baseline if baseline > 0 else 0
+    rel_upper = ci_upper_abs / baseline if baseline > 0 else 0
+
+    cohen_d = tau / se if se > 0 else 0
+    lift_likelihood = float(1 - scipy_stats.norm.cdf(0, loc=tau, scale=se)) if se > 0 else 0.5
+
+    logger.info(
+        f"CausalImpact BSTS: lift={relative_lift:+.1%}, p={p_value:.4f}, "
+        f"R²={r_squared:.3f}, L2={l2_imbalance:.4f}"
+    )
+
+    return IncrementalityResult(
+        absolute_lift=float(tau),
+        relative_lift=float(relative_lift),
+        lift_lower_ci=float(rel_lower),
+        lift_upper_ci=float(rel_upper),
+        p_value=float(p_value),
+        is_significant=p_value < alpha,
+        confidence_level=1 - alpha,
+        cohen_d=float(cohen_d),
+        method="bsts",
+        l2_imbalance=l2_imbalance,
+        pre_period_r_squared=r_squared,
+        lift_likelihood=lift_likelihood,
+    )
+
+
+def _find_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    """Find the first matching column name from a list of candidates."""
+    for col in candidates:
+        if col in df.columns:
+            return col
+    return None
+
+
+def _bsts_statsmodels(
+    pre_data: pd.DataFrame,
+    post_data: pd.DataFrame,
+    treatment_dmas: list[str],
+    holdout_dmas: list[str],
+    revenue_col: str,
+    dma_col: str,
+    date_col: str,
+    alpha: float,
+) -> IncrementalityResult:
+    """Fallback BSTS using statsmodels UnobservedComponents.
+
+    This is an approximation of the full CausalImpact model. It uses
+    a state-space model (local linear trend + covariates) but lacks
+    spike-and-slab priors and proper Bayesian inference.
     """
     import statsmodels.api as sm
 
-    # Build matrices
     Y_pre, Y_post, X_pre, X_post, pre_dates, post_dates = _build_panel_matrices(
         pre_data, post_data, treatment_dmas, holdout_dmas,
         revenue_col, dma_col, date_col,
@@ -305,7 +485,6 @@ def bayesian_structural_time_series(
         abs(np.corrcoef(Y_pre, X_pre[:, j])[0, 1])
         for j in range(X_pre.shape[1])
     ])
-    # Keep covariates with |corr| > 0.3, up to 10
     valid_mask = ~np.isnan(correlations)
     good_covs = np.where(valid_mask & (correlations > 0.3))[0]
     if len(good_covs) == 0:
@@ -316,15 +495,12 @@ def bayesian_structural_time_series(
     X_pre_sel = X_pre[:, good_covs]
     X_post_sel = X_post[:, good_covs]
 
-    # Build full series for UnobservedComponents
     Y_full = np.concatenate([Y_pre, Y_post])
     X_full = np.vstack([X_pre_sel, X_post_sel])
 
-    # Fit model on pre-period only (mask post-period)
     endog = pd.Series(Y_full)
     exog = pd.DataFrame(X_full)
 
-    # Use local linear trend model with regression
     try:
         model = sm.tsa.UnobservedComponents(
             endog[:n_pre],
@@ -341,17 +517,20 @@ def bayesian_structural_time_series(
         )
         fitted = model.fit(disp=False, maxiter=500)
 
-    # Forecast counterfactual in post-period
     forecast = fitted.get_forecast(steps=n_post, exog=exog[n_pre:])
     counterfactual_mean = forecast.predicted_mean.values
-    counterfactual_se = np.sqrt(forecast.var_pred_mean.values) if hasattr(forecast, 'var_pred_mean') else None
+    counterfactual_se = (
+        np.sqrt(forecast.var_pred_mean.values)
+        if hasattr(forecast, "var_pred_mean") else None
+    )
 
     if counterfactual_se is None:
-        # Fall back to confidence interval extraction
         ci = forecast.conf_int(alpha=alpha)
-        counterfactual_se = (ci.iloc[:, 1].values - ci.iloc[:, 0].values) / (2 * scipy_stats.norm.ppf(1 - alpha / 2))
+        counterfactual_se = (
+            (ci.iloc[:, 1].values - ci.iloc[:, 0].values)
+            / (2 * scipy_stats.norm.ppf(1 - alpha / 2))
+        )
 
-    # Pre-period fit
     fitted_pre = fitted.fittedvalues.values
     pre_residuals = Y_pre - fitted_pre
     ss_res = np.sum(pre_residuals ** 2)
@@ -359,12 +538,10 @@ def bayesian_structural_time_series(
     r_squared = float(1 - ss_res / ss_tot) if ss_tot > 0 else 0
     l2_imbalance = float(np.sqrt(np.mean(pre_residuals ** 2)) / np.mean(np.abs(Y_pre)))
 
-    # Treatment effect
     gaps = Y_post - counterfactual_mean
     tau = float(np.mean(gaps))
     baseline = float(np.mean(counterfactual_mean))
 
-    # Inference: simulate from predictive distribution
     n_sim = 5000
     rng = np.random.default_rng(seed=42)
     simulated_taus = []
@@ -378,17 +555,14 @@ def bayesian_structural_time_series(
     ci_lower = float(np.percentile(simulated_taus, 100 * alpha / 2))
     ci_upper = float(np.percentile(simulated_taus, 100 * (1 - alpha / 2)))
 
-    # P-value: fraction of posterior samples <= 0 (for positive effect)
     if tau > 0:
-        p_value = float(np.mean(simulated_taus <= 0)) * 2  # Two-sided
+        p_value = float(np.mean(simulated_taus <= 0)) * 2
     else:
         p_value = float(np.mean(simulated_taus >= 0)) * 2
     p_value = min(p_value, 1.0)
 
-    # Lift likelihood: P(true lift > 0)
     lift_likelihood = float(np.mean(simulated_taus > 0))
 
-    # Relative
     relative_lift = tau / baseline if baseline > 0 else 0
     rel_lower = ci_lower / baseline if baseline > 0 else 0
     rel_upper = ci_upper / baseline if baseline > 0 else 0
@@ -685,8 +859,8 @@ def _build_panel_matrices(
 
     Y_pre = treat_pre.loc[pre_dates].values
     Y_post = treat_post.loc[post_dates].values
-    X_pre = control_pre.loc[pre_dates].fillna(method="ffill").fillna(0).values
-    X_post = control_post.loc[post_dates].fillna(method="ffill").fillna(0).values
+    X_pre = control_pre.loc[pre_dates].ffill().fillna(0).values
+    X_post = control_post.loc[post_dates].ffill().fillna(0).values
 
     return Y_pre, Y_post, X_pre, X_post, pre_dates, post_dates
 

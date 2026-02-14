@@ -5,13 +5,15 @@ adjacent holdout DMAs. This biases the estimate toward zero (you
 underestimate the true effect) because your holdout isn't truly clean.
 
 Haus uses proprietary GPS-derived "Commuting Zones" to handle this.
-We approximate with DMA adjacency data and geographic buffering:
+We use polygon-based DMA boundary adjacency (via GeoPandas) as primary,
+with centroid-distance fallback:
 
-1. Build an adjacency graph of DMAs (which DMAs share borders)
-2. Identify treatment DMAs that border holdout DMAs
-3. Option A: Exclude border DMAs from analysis (buffer zone)
-4. Option B: Flag border pairs and adjust standard errors
-5. Score the design by the fraction of "clean" holdout DMAs
+1. Build adjacency from actual DMA boundary polygons (GeoJSON)
+2. Fall back to centroid-distance computation for all 210 DMAs
+3. Identify treatment DMAs that border holdout DMAs
+4. Option A: Exclude border DMAs from analysis (buffer zone)
+5. Option B: Flag border pairs and adjust standard errors
+6. Score the design by the fraction of "clean" holdout DMAs
 
 This is a critical concern for brands with physical retail, regional
 delivery, and any product where customers near DMA borders might be
@@ -24,67 +26,52 @@ import logging
 
 import numpy as np
 
+from incrementality.design.dma_boundaries import (
+    get_adjacency,
+    compute_adjacency_from_centroids,
+    _ALL_DMA_CENTROIDS,
+)
+
 logger = logging.getLogger(__name__)
 
 
 # =====================================================================
-# DMA adjacency map
+# DMA adjacency — loaded from polygon boundaries or computed on the fly
 # =====================================================================
-# Each entry: DMA code -> list of adjacent DMA codes
-# This covers the major DMAs. Adjacency = shares a geographic border
-# or has significant cross-border commuting patterns.
-#
-# Note: Haus uses GPS-derived commuting zones which are more granular.
-# This is a reasonable approximation for DMA-level tests.
 
-_DMA_ADJACENCY: dict[str, list[str]] = {
-    # Northeast
-    "501": ["504", "533", "521"],  # New York -> Philadelphia, Hartford, Providence
-    "504": ["501", "504", "511"],  # Philadelphia -> NYC, DC
-    "506": ["521", "533"],  # Boston -> Providence, Hartford
-    "511": ["504", "512", "577"],  # DC -> Philadelphia, Baltimore, Wilkes-Barre
-    "512": ["511"],  # Baltimore -> DC
-    "521": ["506", "501", "533"],  # Providence -> Boston, NYC, Hartford
-    "533": ["506", "501", "521"],  # Hartford -> Boston, NYC, Providence
-    # Southeast
-    "524": ["528", "560"],  # Atlanta -> Nashville, Raleigh
-    "528": ["524", "557"],  # Nashville -> Atlanta, Knoxville
-    "531": ["560", "570"],  # Raleigh-Durham -> Charlotte, Florence
-    "534": ["531"],  # Orlando -> nearby FL
-    "539": ["548"],  # Tampa -> West Palm Beach
-    "548": ["539", "528"],  # West Palm Beach -> Tampa
-    "557": ["528"],  # Knoxville -> Nashville
-    "560": ["524", "531"],  # Charlotte -> Atlanta, Raleigh
-    "570": ["531", "560"],  # Florence-Myrtle Beach -> Raleigh, Charlotte
-    # Midwest
-    "602": ["617", "616", "669"],  # Chicago -> Milwaukee, Kansas City, Madison
-    "616": ["602"],  # Kansas City -> Chicago
-    "617": ["602", "669"],  # Milwaukee -> Chicago, Madison
-    "669": ["602", "617"],  # Madison -> Chicago, Milwaukee
-    "505": ["610"],  # Detroit -> Cleveland
-    "510": ["505"],  # Cleveland -> Detroit (as 610, mapped)
-    "610": ["505"],  # Cleveland -> Detroit
-    "527": ["602"],  # Indianapolis -> Chicago
-    "613": ["527"],  # Minneapolis -> nearby
-    # West
-    "803": ["807", "825", "868"],  # LA -> SF, San Diego, Sacramento
-    "807": ["803", "868", "862"],  # SF -> LA, Sacramento, Portland-ish
-    "825": ["803"],  # San Diego -> LA
-    "819": ["820"],  # Seattle -> Portland
-    "820": ["819"],  # Portland -> Seattle
-    "868": ["807", "803"],  # Sacramento -> SF, LA
-    "862": ["807"],  # Sacramento adjacent
-    # Southwest
-    "623": ["618"],  # Dallas -> Houston
-    "618": ["623"],  # Houston -> Dallas
-    "753": ["623"],  # Phoenix -> (distant but same region)
-    "641": ["618"],  # San Antonio -> Houston
-}
+_ADJACENCY_CACHE: dict[str, list[str]] | None = None
+
+
+def _get_dma_adjacency() -> dict[str, list[str]]:
+    """Get the DMA adjacency map, using the best available source.
+
+    Priority:
+    1. Polygon-based adjacency from cached GeoJSON computation
+    2. Centroid-distance-based adjacency for all 210 DMAs
+    """
+    global _ADJACENCY_CACHE
+
+    if _ADJACENCY_CACHE is not None:
+        return _ADJACENCY_CACHE
+
+    # Try loading polygon-based adjacency
+    adjacency = get_adjacency()
+    if adjacency is not None and len(adjacency) > 50:
+        logger.info(f"Using polygon-based DMA adjacency ({len(adjacency)} DMAs)")
+        _ADJACENCY_CACHE = adjacency
+        return _ADJACENCY_CACHE
+
+    # Fall back to centroid-distance computation
+    logger.info("Computing DMA adjacency from centroids (polygon boundaries not available)")
+    _ADJACENCY_CACHE = compute_adjacency_from_centroids(max_distance_miles=175.0)
+    logger.info(f"Computed centroid-based adjacency for {len(_ADJACENCY_CACHE)} DMAs")
+    return _ADJACENCY_CACHE
 
 
 def get_adjacent_dmas(dma_code: str) -> list[str]:
     """Get DMAs adjacent to a given DMA."""
-    return _DMA_ADJACENCY.get(dma_code, [])
+    adjacency = _get_dma_adjacency()
+    return adjacency.get(dma_code, [])
 
 
 def compute_spillover_risk(
@@ -119,7 +106,6 @@ def compute_spillover_risk(
     clean_fraction = 1.0 - (n_contaminated / n_holdout) if n_holdout > 0 else 1.0
 
     # Risk score: higher is worse
-    # Based on fraction of holdout DMAs at risk of contamination
     risk_score = n_contaminated / n_holdout if n_holdout > 0 else 0.0
 
     recommendations = []
@@ -169,8 +155,6 @@ def apply_geographic_buffer(
     contaminated_holdout = set(spillover["contaminated_holdout_dmas"])
     contaminated_treatment = set(spillover["contaminated_treatment_dmas"])
 
-    # Only buffer holdout DMAs (treatment contamination is less of a concern)
-    # But do both if risk is very high
     buffer_dmas = []
     filtered_holdout = holdout_dmas.copy()
     filtered_treatment = treatment_dmas.copy()
@@ -188,7 +172,6 @@ def apply_geographic_buffer(
             )
         else:
             # Not enough holdout DMAs left after buffering
-            # Only remove the most contaminated (those with most treatment neighbors)
             contamination_count = {}
             for h_dma in contaminated_holdout:
                 count = sum(
@@ -197,7 +180,6 @@ def apply_geographic_buffer(
                 )
                 contamination_count[h_dma] = count
 
-            # Sort by contamination, remove worst offenders
             sorted_contaminated = sorted(
                 contamination_count.items(), key=lambda x: -x[1]
             )

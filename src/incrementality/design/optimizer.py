@@ -120,7 +120,9 @@ def compute_dma_historical_metrics(
 
         rev_source = shopify_daily if shopify_daily is not None else amazon_daily
         if rev_source is not None and not rev_source.empty:
-            subset = rev_source[rev_source["dma_code"] == code].sort_values("date")
+            subset = rev_source[rev_source["dma_code"] == code].copy()
+            subset["date"] = pd.to_datetime(subset["date"])
+            subset = subset.sort_values("date")
             if len(subset) >= 7:
                 weekly = subset.groupby(
                     pd.Grouper(key="date", freq="W")

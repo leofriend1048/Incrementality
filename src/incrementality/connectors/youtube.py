@@ -2,6 +2,9 @@
 
 Pulls ad spend and delivery data from the Google Ads API,
 broken down by DMA-level geo targeting.
+
+YouTube campaigns in Google Ads use advertising_channel_type = VIDEO.
+Google Ads natively supports DMA (Metro) level geo targeting and reporting.
 """
 
 from __future__ import annotations
@@ -35,14 +38,25 @@ class YouTubeConnector:
 
         from google.ads.googleads.client import GoogleAdsClient
 
-        self._client = GoogleAdsClient.load_from_dict({
-            "developer_token": "",  # Set via env or config
+        config_dict = {
             "client_id": self.config.client_id,
             "client_secret": self.config.client_secret,
             "refresh_token": self.config.refresh_token,
             "login_customer_id": self.config.customer_id,
             "use_proto_plus": True,
-        })
+        }
+
+        # developer_token is required for all Google Ads API calls
+        if self.config.developer_token:
+            config_dict["developer_token"] = self.config.developer_token
+        else:
+            raise ValueError(
+                "Google Ads developer_token is required. "
+                "Get one at https://ads.google.com/nav/selectaccount?authuser=0 "
+                "under Tools & Settings > API Center."
+            )
+
+        self._client = GoogleAdsClient.load_from_dict(config_dict)
         return self._client
 
     def fetch_campaigns(self) -> pd.DataFrame:
@@ -85,7 +99,8 @@ class YouTubeConnector:
     ) -> pd.DataFrame:
         """Fetch daily ad spend by DMA (metro area) from Google Ads.
 
-        Google Ads uses 'metro' criterion for DMA-level geo data.
+        Uses the user_location_view resource which provides DMA-level
+        geo data via geo_target_constant of type METRO.
 
         Returns columns: date, dma_code, dma_name, spend, impressions,
                          views, view_rate, clicks, cost_per_view
@@ -98,29 +113,33 @@ class YouTubeConnector:
             ids_str = ", ".join(campaign_ids)
             campaign_filter = f"AND campaign.id IN ({ids_str})"
 
+        # Use user_location_view for location-based reporting.
+        # Filter to metro-level (DMA) geo targets only.
         query = f"""
             SELECT
                 segments.date,
-                geographic_view.country_criterion_id,
-                geographic_view.location_type,
-                geo_target_constant.canonical_name,
-                geo_target_constant.id,
+                campaign.id,
+                user_location_view.country_criterion_id,
+                user_location_view.targeting_location,
                 metrics.cost_micros,
                 metrics.impressions,
                 metrics.video_views,
                 metrics.video_view_rate,
                 metrics.clicks
-            FROM geographic_view
+            FROM user_location_view
             WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'
             AND campaign.advertising_channel_type = 'VIDEO'
-            AND geographic_view.location_type = 'LOCATION_OF_PRESENCE'
             {campaign_filter}
         """
 
         records = []
         response = service.search(customer_id=self.config.customer_id, query=query)
         for row in response:
-            geo_id = str(row.geo_target_constant.id)
+            # targeting_location is a geo_target_constant resource name
+            geo_resource = row.user_location_view.targeting_location
+            # Extract the geo ID from the resource name
+            # Format: "geoTargetConstants/XXXXXX"
+            geo_id = geo_resource.split("/")[-1] if geo_resource else ""
             dma_code = _google_geo_id_to_dma(geo_id)
             if dma_code:
                 cost = row.metrics.cost_micros / 1_000_000
@@ -128,7 +147,7 @@ class YouTubeConnector:
                 records.append({
                     "date": pd.Timestamp(row.segments.date).date(),
                     "dma_code": dma_code,
-                    "dma_name": row.geo_target_constant.canonical_name,
+                    "dma_name": "",  # Name resolved from mapping
                     "spend": cost,
                     "impressions": row.metrics.impressions,
                     "views": views,
@@ -177,7 +196,7 @@ def get_dma_exclusion_targeting(holdout_dma_codes: list[str]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Google Ads geo criterion ID ↔ Nielsen DMA code mapping
+# Google Ads geo criterion ID <-> Nielsen DMA code mapping
 # Google Ads uses its own geo IDs for metro areas.
 # Top 50 DMAs mapped here; extend as needed.
 # ---------------------------------------------------------------------------

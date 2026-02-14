@@ -38,6 +38,7 @@ class YouTubeConfig(BaseModel):
     client_secret: str
     refresh_token: str
     customer_id: str  # Google Ads customer ID
+    developer_token: str = ""  # Required — get from Google Ads API Center
 
 
 class StatisticalConfig(BaseModel):

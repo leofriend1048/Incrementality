@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "incrementality"
-version = "0.1.0"
+version = "0.2.0"
 description = "Geo holdout incrementality testing platform for Shopify and Amazon brands"
 requires-python = ">=3.10"
 dependencies = [
@@ -18,12 +18,28 @@ dependencies = [
     "pydantic>=2.0",
     "pyyaml>=6.0",
     "requests>=2.31",
-    "shopifyapi>=12.0",
-    "google-api-python-client>=2.100",
-    "facebook-business>=18.0",
 ]
 
 [project.optional-dependencies]
+# Shopify connector
+shopify = ["shopifyapi>=12.0"]
+# Google Ads / YouTube connector
+google = ["google-ads>=23.0"]
+# Facebook / Meta connector
+facebook = ["facebook-business>=18.0"]
+# Real CausalImpact BSTS (TensorFlow-based)
+causalimpact = ["tfcausalimpact>=0.1"]
+# Polygon-based DMA adjacency
+geo = ["geopandas>=0.14", "shapely>=2.0"]
+# All connectors + advanced features
+all = [
+    "shopifyapi>=12.0",
+    "google-ads>=23.0",
+    "facebook-business>=18.0",
+    "tfcausalimpact>=0.1",
+    "geopandas>=0.14",
+    "shapely>=2.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
