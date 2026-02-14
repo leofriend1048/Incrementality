@@ -45,6 +45,7 @@ from incrementality.models import (
     TestScope,
     TestStatus,
 )
+from incrementality.report_pdf import save_report_html, save_report_pdf
 from incrementality.reporting import (
     generate_report,
     print_report,
@@ -358,6 +359,13 @@ class TestOrchestrator:
         print_report(report)
         save_report_json(report, self.output_dir)
         save_report_csv(report, self.output_dir)
+        html_path = save_report_html(report, self.output_dir)
+        logger.info(f"HTML report: {html_path}")
+        try:
+            pdf_path = save_report_pdf(report, self.output_dir)
+            logger.info(f"PDF report: {pdf_path}")
+        except Exception as e:
+            logger.debug(f"PDF generation skipped: {e}")
 
         # Update design status
         design.status = TestStatus.ANALYZED

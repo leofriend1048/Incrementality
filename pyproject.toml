@@ -31,6 +31,8 @@ facebook = ["facebook-business>=18.0"]
 causalimpact = ["tfcausalimpact>=0.1"]
 # Polygon-based DMA adjacency
 geo = ["geopandas>=0.14", "shapely>=2.0"]
+# PDF report generation
+pdf = ["weasyprint>=60.0"]
 # All connectors + advanced features
 all = [
     "shopifyapi>=12.0",
@@ -39,6 +41,7 @@ all = [
     "tfcausalimpact>=0.1",
     "geopandas>=0.14",
     "shapely>=2.0",
+    "weasyprint>=60.0",
 ]
 dev = [
     "pytest>=7.0",
