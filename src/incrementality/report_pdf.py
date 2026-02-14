@@ -1158,6 +1158,68 @@ def _render_html(report: TestReport) -> str:
     </div>
     """)
 
+    # ── Winsorized Robustness Check ──────────────────────────────────
+    if report.winsorized_comparison:
+        wc = report.winsorized_comparison
+        div_pct = wc.get("divergence", 0) * 100
+        raw_lift = wc.get("raw_lift", 0)
+        win_lift = wc.get("winsorized_lift", 0)
+        raw_p = wc.get("raw_p", 1)
+        win_p = wc.get("winsorized_p", 1)
+        outlier_driven = wc.get("is_outlier_driven", False)
+        sig_flips = wc.get("significance_flips", False)
+        recommendation = wc.get("recommendation", "")
+
+        robustness_class = "red" if (outlier_driven and sig_flips) else (
+            "yellow" if outlier_driven else "green"
+        )
+        robustness_label = (
+            "Outlier-Driven" if (outlier_driven and sig_flips)
+            else "Moderate Divergence" if outlier_driven
+            else "Robust"
+        )
+
+        parts.append(f"""
+        <div class="section">
+            <div class="section-title">Winsorized Robustness Check</div>
+            <div class="metric-grid three-col">
+                <div class="metric-card {robustness_class}">
+                    <div class="metric-label">Divergence</div>
+                    <div class="metric-value sm">{div_pct:.0f}%</div>
+                    <div class="metric-sub">{robustness_label}</div>
+                </div>
+                <div class="metric-card brand">
+                    <div class="metric-label">Raw Lift</div>
+                    <div class="metric-value sm">{_pct(raw_lift)}</div>
+                    <div class="metric-sub">p = {raw_p:.4f}</div>
+                </div>
+                <div class="metric-card brand">
+                    <div class="metric-label">Winsorized Lift</div>
+                    <div class="metric-value sm">{_pct(win_lift)}</div>
+                    <div class="metric-sub">p = {win_p:.4f}</div>
+                </div>
+            </div>
+            <div style="color: var(--text-muted); font-size: 12px; margin-top: 12px; line-height: 1.7; font-weight: 500;">
+                {_esc(recommendation)}
+            </div>
+        </div>
+        """)
+
+    # ── Anomaly Detection ─────────────────────────────────────────────
+    if report.anomaly_warnings or report.anomaly_blockers:
+        anomaly_html = ""
+        for b in report.anomaly_blockers:
+            anomaly_html += f'<div class="alert blocker">&#10007; <strong>Blocker:</strong> {_esc(b)}</div>'
+        for w in report.anomaly_warnings:
+            anomaly_html += f'<div class="alert warning">&#9888; {_esc(w)}</div>'
+
+        parts.append(f"""
+        <div class="section">
+            <div class="section-title">Data Quality &amp; Anomaly Detection</div>
+            {anomaly_html}
+        </div>
+        """)
+
     # ── Recommendations ───────────────────────────────────────────────
     if report.recommendations:
         rec_html = ""

@@ -233,6 +233,11 @@ class TestReport(BaseModel):
     # Ensemble details (new)
     estimator_results: dict[str, "IncrementalityResult"] = Field(default_factory=dict)
     estimator_weights: dict[str, float] = Field(default_factory=dict)
+    # Winsorized comparison (new)
+    winsorized_comparison: dict = Field(default_factory=dict)
+    # Anomaly detection (new)
+    anomaly_warnings: list[str] = Field(default_factory=list)
+    anomaly_blockers: list[str] = Field(default_factory=list)
     # Recommendations
     recommendations: list[str] = Field(default_factory=list)
     # Metadata

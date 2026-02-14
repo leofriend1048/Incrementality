@@ -195,6 +195,28 @@ def build_sample_report() -> TestReport:
             "bsts": 0.35,
             "did": 0.20,
         },
+        # Winsorized robustness comparison
+        winsorized_comparison={
+            "raw_lift": 0.134,
+            "winsorized_lift": 0.128,
+            "raw_p": 0.0012,
+            "winsorized_p": 0.0018,
+            "divergence": 0.046,
+            "is_outlier_driven": False,
+            "significance_flips": False,
+            "recommendation": (
+                "Results are robust to winsorization (divergence: 5%). "
+                "Outliers are not driving the result."
+            ),
+        },
+        # Anomaly detection results
+        anomaly_warnings=[
+            "Detected 7 outlier observations (|z| > 3.5) across 3 DMAs. "
+            "Winsorized analysis recommended to assess robustness.",
+            "3 DMAs in the holdout group had partial ad exposure during week 2 "
+            "(spend < $50). Effect on results is negligible.",
+        ],
+        anomaly_blockers=[],
         recommendations=[
             "The test reached statistical significance (p=0.001). There is strong "
             "evidence that Facebook ads drive +13.4% incremental lift across "

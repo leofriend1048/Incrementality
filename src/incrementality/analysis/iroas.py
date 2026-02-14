@@ -67,6 +67,8 @@ def compute_iroas(
     test_duration_days: int,
     primary_result: IncrementalityResult | None = None,
     alpha: float = 0.05,
+    attributed_conversions: float = 0.0,
+    orders_col: str | None = None,
 ) -> IncrementalROAS:
     """Compute incremental ROAS from test data.
 
@@ -81,6 +83,10 @@ def compute_iroas(
         primary_result: Pre-computed primary incrementality result (from ensemble).
                         If None, falls back to running DiD.
         alpha: Significance level
+        attributed_conversions: Platform-reported conversions (from ad platform).
+                                Used to compute Incrementality Factor (IF).
+        orders_col: Column name for order counts in post_data. Used to compute
+                    incremental conversions for IF and CPIA.
     """
     # Total ad spend in treatment during test
     treatment_spend = ad_spend_data[
@@ -140,7 +146,110 @@ def compute_iroas(
         result.amazon_incremental_revenue = float(inc_rev)
         result.amazon_iroas = float(iroas)
 
+    # --- IF and CPIA computation ---
+    _compute_if_cpia(
+        result, post_data, treatment_dmas, holdout_dmas,
+        treatment_spend, overall_result, test_duration_days,
+        attributed_conversions, orders_col,
+    )
+
     return result
+
+
+def _compute_if_cpia(
+    result: IncrementalROAS,
+    post_data: pd.DataFrame,
+    treatment_dmas: list[str],
+    holdout_dmas: list[str],
+    treatment_spend: float,
+    primary_result: IncrementalityResult,
+    test_duration_days: int,
+    attributed_conversions: float = 0.0,
+    orders_col: str | None = None,
+) -> None:
+    """Compute Incrementality Factor (IF) and Cost Per Incremental Acquisition (CPIA).
+
+    IF = incremental_conversions / attributed_conversions
+    - IF > 1.0: Ads drive MORE conversions than the platform reports (under-attribution)
+    - IF = 1.0: Perfect attribution
+    - IF < 1.0: Platform over-counts (some conversions would happen anyway)
+    - IF = 0.0: No incremental conversions; all are organic
+
+    CPIA = total_ad_spend / incremental_conversions
+    - The true cost to acquire each incremental customer
+    - Use for cross-channel comparison (compare Facebook CPIA vs YouTube CPIA)
+
+    Incremental conversions are estimated from the experiment: we apply
+    the measured lift to the holdout group's order rate to estimate how
+    many extra orders the treatment caused.
+    """
+    # Try to compute incremental conversions from order data
+    incremental_conversions = 0.0
+
+    # Auto-detect orders column
+    if orders_col is None:
+        for candidate in ["orders", "shopify_orders", "total_orders"]:
+            if candidate in post_data.columns:
+                orders_col = candidate
+                break
+
+    if orders_col and orders_col in post_data.columns:
+        # Treatment group orders per DMA per day
+        treatment_orders = post_data[
+            post_data["dma_code"].isin(treatment_dmas)
+        ].groupby("dma_code")[orders_col].mean()
+
+        # Holdout group orders per DMA per day (the counterfactual)
+        holdout_orders = post_data[
+            post_data["dma_code"].isin(holdout_dmas)
+        ].groupby("dma_code")[orders_col].mean()
+
+        if len(treatment_orders) > 0 and len(holdout_orders) > 0:
+            treatment_mean = treatment_orders.mean()
+            holdout_mean = holdout_orders.mean()
+
+            # Incremental orders per DMA per day
+            incremental_per_dma_day = treatment_mean - holdout_mean
+
+            # Scale to total incremental conversions
+            incremental_conversions = max(
+                0.0,
+                incremental_per_dma_day * len(treatment_dmas) * test_duration_days,
+            )
+
+            logger.info(
+                f"Incremental conversions: {incremental_conversions:.0f} "
+                f"(treatment avg: {treatment_mean:.1f}/DMA/day, "
+                f"holdout avg: {holdout_mean:.1f}/DMA/day)"
+            )
+    elif primary_result.relative_lift > 0:
+        # Fallback: estimate from lift and total treatment conversions
+        # If we don't have orders data, we can't compute this
+        logger.debug(
+            "No orders column found in data. IF/CPIA requires order-level data."
+        )
+
+    # Populate results
+    if incremental_conversions > 0:
+        result.incremental_conversions = float(incremental_conversions)
+        result.cpia = float(treatment_spend / incremental_conversions)
+
+        if attributed_conversions > 0:
+            result.attributed_conversions = float(attributed_conversions)
+            result.incrementality_factor = float(
+                incremental_conversions / attributed_conversions
+            )
+            logger.info(
+                f"IF = {result.incrementality_factor:.2f} "
+                f"({incremental_conversions:.0f} incremental / "
+                f"{attributed_conversions:.0f} attributed), "
+                f"CPIA = ${result.cpia:.2f}"
+            )
+        else:
+            logger.info(
+                f"CPIA = ${result.cpia:.2f} "
+                f"(no attributed conversions provided for IF)"
+            )
 
 
 def _compute_platform_breakdown(

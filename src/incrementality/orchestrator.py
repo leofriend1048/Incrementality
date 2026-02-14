@@ -23,12 +23,17 @@ from pathlib import Path
 
 import pandas as pd
 
+from incrementality.analysis.anomaly import detect_anomalies
 from incrementality.analysis.estimators import (
     difference_in_differences,
     run_ensemble,
 )
 from incrementality.analysis.iroas import compute_iroas
 from incrementality.analysis.validation import run_full_validation
+from incrementality.analysis.winsorize import (
+    compare_winsorized_results,
+    winsorize_panel,
+)
 from incrementality.config import Config
 from incrementality.connectors.amazon import AmazonConnector
 from incrementality.connectors.facebook import FacebookConnector
@@ -204,15 +209,26 @@ class TestOrchestrator:
         pre_data: pd.DataFrame | None = None,
         post_data: pd.DataFrame | None = None,
         ad_spend_data: pd.DataFrame | None = None,
+        attributed_conversions: float = 0.0,
     ) -> TestReport:
         """Analyze a completed test and generate the report.
 
         Production pipeline:
-        1. Run ensemble estimator (ASCM + BSTS + DiD)
-        2. Run full validation suite
-        3. Compute iROAS using ensemble result
-        4. Assess spillover risk
-        5. Generate comprehensive report with trust score
+        1. Anomaly detection (pre-analysis data quality)
+        2. Run ensemble estimator (ASCM + BSTS + DiD)
+        3. Run winsorized ensemble for outlier robustness comparison
+        4. Run full validation suite
+        5. Compute iROAS with IF and CPIA
+        6. Assess spillover risk
+        7. Generate comprehensive report with trust score
+
+        Args:
+            design: Test design specification.
+            pre_data: Pre-test period data. Pulled from APIs if None.
+            post_data: Test period data. Pulled from APIs if None.
+            ad_spend_data: Ad spend data. Pulled from APIs if None.
+            attributed_conversions: Platform-reported conversions (e.g. from
+                Facebook Ads Manager). Used to compute Incrementality Factor.
         """
         treatment_dmas = design.treatment_cell.dma_codes
         holdout_dmas = design.holdout_cell.dma_codes
@@ -245,9 +261,26 @@ class TestOrchestrator:
                 test_start, test_end, design.ad_channel, design.campaign_ids,
             )
 
+        revenue_col = "revenue"
+
+        # --- Step 0: Anomaly detection ---
+        logger.info("Running pre-analysis anomaly detection...")
+        anomaly_report = detect_anomalies(
+            pre_data, post_data, treatment_dmas, holdout_dmas,
+            revenue_col=revenue_col,
+        )
+        anomaly_warnings = anomaly_report.warnings
+        anomaly_blockers = anomaly_report.blockers
+
+        if anomaly_report.has_blockers:
+            for blocker in anomaly_blockers:
+                logger.warning(f"ANOMALY BLOCKER: {blocker}")
+        if anomaly_warnings:
+            for warning in anomaly_warnings:
+                logger.info(f"Anomaly warning: {warning}")
+
         # --- Step 1: Run ensemble estimator ---
         logger.info("Running ensemble causal inference (ASCM + BSTS + DiD)...")
-        revenue_col = "revenue"
         try:
             ensemble_result, estimator_results, estimator_weights = run_ensemble(
                 pre_data, post_data, treatment_dmas, holdout_dmas,
@@ -264,7 +297,38 @@ class TestOrchestrator:
             estimator_weights = {"did": 1.0}
             ensemble_result = primary_result
 
-        # --- Step 2: Run full validation suite ---
+        # --- Step 2: Winsorized analysis for robustness ---
+        logger.info("Running winsorized analysis for outlier robustness...")
+        winsorized_comparison = {}
+        try:
+            pre_winsorized = winsorize_panel(pre_data, revenue_col=revenue_col)
+            post_winsorized = winsorize_panel(post_data, revenue_col=revenue_col)
+
+            winsorized_result = difference_in_differences(
+                pre_winsorized, post_winsorized,
+                treatment_dmas, holdout_dmas,
+                revenue_col=revenue_col,
+            )
+
+            winsorized_comparison = compare_winsorized_results(
+                raw_lift=primary_result.relative_lift,
+                winsorized_lift=winsorized_result.relative_lift,
+                raw_p=primary_result.p_value,
+                winsorized_p=winsorized_result.p_value,
+            )
+
+            logger.info(
+                f"Winsorized comparison: raw={primary_result.relative_lift:+.1%}, "
+                f"winsorized={winsorized_result.relative_lift:+.1%}, "
+                f"divergence={winsorized_comparison['divergence']:.0%}"
+            )
+
+            if winsorized_comparison["is_outlier_driven"]:
+                anomaly_warnings.append(winsorized_comparison["recommendation"])
+        except Exception as e:
+            logger.warning(f"Winsorized analysis failed: {e}")
+
+        # --- Step 3: Run full validation suite ---
         logger.info("Running validation suite...")
         try:
             validation = run_full_validation(
@@ -285,7 +349,7 @@ class TestOrchestrator:
             logger.warning(f"Validation failed: {e}")
             validation = None
 
-        # --- Step 3: Spillover assessment ---
+        # --- Step 4: Spillover assessment ---
         spillover = compute_spillover_risk(treatment_dmas, holdout_dmas)
         if spillover["risk_score"] > 0.1:
             logger.info(
@@ -300,16 +364,17 @@ class TestOrchestrator:
                 f"{adjusted_lift:.4f}"
             )
 
-        # --- Step 4: Compute iROAS using ensemble result ---
-        logger.info("Computing incremental ROAS...")
+        # --- Step 5: Compute iROAS with IF and CPIA ---
+        logger.info("Computing incremental ROAS with IF/CPIA...")
         iroas = compute_iroas(
             pre_data, post_data, ad_spend_data,
             treatment_dmas, holdout_dmas,
             design.measurement_scope, test_duration_days,
             primary_result=primary_result,
+            attributed_conversions=attributed_conversions,
         )
 
-        # --- Step 5: Cross-platform incrementality ---
+        # --- Step 6: Cross-platform incrementality ---
         shopify_inc = None
         amazon_inc = None
         if design.measurement_scope == MeasurementScope.SHOPIFY_AND_AMAZON:
@@ -338,7 +403,7 @@ class TestOrchestrator:
             post_data["dma_code"].isin(holdout_dmas)
         ][revenue_col].sum()
 
-        # --- Step 6: Generate report ---
+        # --- Step 7: Generate report ---
         report = generate_report(
             design=design,
             incrementality=primary_result,
@@ -350,10 +415,13 @@ class TestOrchestrator:
             amazon_incrementality=amazon_inc,
         )
 
-        # Attach validation and ensemble details
+        # Attach validation, ensemble, winsorization, and anomaly details
         report.validation = validation
         report.estimator_results = estimator_results
         report.estimator_weights = estimator_weights
+        report.winsorized_comparison = winsorized_comparison
+        report.anomaly_warnings = anomaly_warnings
+        report.anomaly_blockers = anomaly_blockers
 
         # Print and save
         print_report(report)
@@ -383,7 +451,10 @@ class TestOrchestrator:
         end: date,
         measurement_scope: MeasurementScope,
     ) -> pd.DataFrame:
-        """Pull revenue data for the test period."""
+        """Pull revenue data for the test period.
+
+        Preserves the 'orders' column from Shopify for IF/CPIA computation.
+        """
         frames = []
 
         if measurement_scope in (
@@ -392,7 +463,11 @@ class TestOrchestrator:
         ):
             if self._shopify:
                 shopify = self._shopify.get_daily_revenue_by_dma(start, end)
-                shopify = shopify.rename(columns={"revenue": "shopify_revenue"})
+                # Preserve orders column, rename revenue for clarity
+                rename_map = {"revenue": "shopify_revenue"}
+                if "orders" in shopify.columns:
+                    rename_map["orders"] = "shopify_orders"
+                shopify = shopify.rename(columns=rename_map)
                 frames.append(shopify)
 
         if measurement_scope in (
@@ -401,7 +476,10 @@ class TestOrchestrator:
         ):
             if self._amazon:
                 amazon = self._amazon.get_daily_revenue_by_dma(start, end)
-                amazon = amazon.rename(columns={"revenue": "amazon_revenue"})
+                rename_map = {"revenue": "amazon_revenue"}
+                if "orders" in amazon.columns:
+                    rename_map["orders"] = "amazon_orders"
+                amazon = amazon.rename(columns=rename_map)
                 frames.append(amazon)
 
         if not frames:
@@ -409,19 +487,28 @@ class TestOrchestrator:
 
         result = frames[0]
         for df in frames[1:]:
+            # Merge keeping all available columns
+            merge_cols = ["date", "dma_code"]
+            extra_cols = [c for c in df.columns if c not in merge_cols]
             result = result.merge(
-                df[["date", "dma_code", "amazon_revenue"]],
-                on=["date", "dma_code"],
+                df[merge_cols + extra_cols],
+                on=merge_cols,
                 how="outer",
             )
 
         result = result.fillna(0)
 
+        # Combine platform revenues into total
         rev_cols = [c for c in result.columns if c.endswith("_revenue")]
         if rev_cols:
             result["revenue"] = result[rev_cols].sum(axis=1)
         elif "revenue" not in result.columns:
             result["revenue"] = 0
+
+        # Combine platform orders into total
+        order_cols = [c for c in result.columns if c.endswith("_orders")]
+        if order_cols:
+            result["orders"] = result[order_cols].sum(axis=1).astype(int)
 
         return result
 
