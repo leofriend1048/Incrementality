@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LIFT Report &mdash; Michael Todd Beauty — Facebook Incrementality Q1</title>
+    <style>:root {
+    --brand: #06b6d4;
+    --brand-dark: #0891b2;
+    --brand-glow: rgba(6, 182, 212, 0.12);
+    --green: #22c55e;
+    --green-dim: rgba(34, 197, 94, 0.15);
+    --red: #ef4444;
+    --red-dim: rgba(239, 68, 68, 0.12);
+    --yellow: #eab308;
+    --yellow-dim: rgba(234, 179, 8, 0.12);
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface-2: #334155;
+    --text: #f1f5f9;
+    --text-muted: #94a3b8;
+    --border: #475569;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 48px 40px;
+    max-width: 920px;
+    margin: 0 auto;
+}
+
+/* ── Header ── */
+.header {
+    border-bottom: 2px solid var(--brand);
+    padding-bottom: 28px;
+    margin-bottom: 36px;
+}
+.brand {
+    font-size: 32px;
+    font-weight: 800;
+    color: var(--brand);
+    letter-spacing: 3px;
+}
+.brand .mark { margin-right: 10px; }
+.subtitle {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-top: 2px;
+    letter-spacing: 0.5px;
+}
+.test-name {
+    font-size: 22px;
+    font-weight: 600;
+    margin-top: 20px;
+    color: var(--text);
+}
+.meta {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+/* ── Sections ── */
+.section { margin-bottom: 36px; }
+.section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--brand);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    border-bottom: 1px solid var(--surface-2);
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+}
+
+/* ── Key Takeaway ── */
+.takeaway {
+    background: var(--brand-glow);
+    border: 1px solid rgba(6, 182, 212, 0.25);
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-bottom: 36px;
+    font-size: 16px;
+    line-height: 1.7;
+}
+.takeaway .takeaway-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--brand);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+}
+.takeaway strong { color: var(--text); }
+.takeaway .highlight { color: var(--green); font-weight: 700; }
+.takeaway .highlight-brand { color: var(--brand); font-weight: 700; }
+
+/* ── Metric Cards ── */
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-bottom: 8px;
+}
+.metric-card {
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 22px 24px;
+    border-left: 3px solid var(--brand);
+    position: relative;
+}
+.metric-card.green { border-left-color: var(--green); }
+.metric-card.yellow { border-left-color: var(--yellow); }
+.metric-card.red { border-left-color: var(--red); }
+.metric-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+.metric-value {
+    font-size: 32px;
+    font-weight: 800;
+    line-height: 1.2;
+}
+.metric-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 6px;
+}
+.positive { color: var(--green); }
+.negative { color: var(--red); }
+.neutral { color: var(--text); }
+
+/* ── CI Bar ── */
+.ci-container {
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-top: 16px;
+}
+.ci-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+}
+.ci-bar-track {
+    position: relative;
+    height: 32px;
+    background: var(--surface-2);
+    border-radius: 6px;
+    overflow: visible;
+    margin: 0 0 8px 0;
+}
+.ci-bar-range {
+    position: absolute;
+    height: 100%;
+    border-radius: 6px;
+    opacity: 0.35;
+}
+.ci-bar-range.positive { background: var(--green); }
+.ci-bar-range.negative { background: var(--red); }
+.ci-bar-range.mixed { background: var(--yellow); }
+.ci-bar-point {
+    position: absolute;
+    top: 50%;
+    width: 4px;
+    height: 24px;
+    border-radius: 2px;
+    transform: translateY(-50%) translateX(-50%);
+    background: var(--text);
+}
+.ci-bar-zero {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    width: 1px;
+    background: var(--text-muted);
+    opacity: 0.5;
+}
+.ci-ticks {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+/* ── Likelihood Ring ── */
+.likelihood-row {
+    display: flex;
+    gap: 16px;
+    margin-top: 16px;
+}
+.likelihood-card {
+    flex: 1;
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+.ring-container {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    flex-shrink: 0;
+}
+.ring-container svg {
+    transform: rotate(-90deg);
+    width: 64px;
+    height: 64px;
+}
+.ring-container .ring-bg {
+    fill: none;
+    stroke: var(--surface-2);
+    stroke-width: 5;
+}
+.ring-container .ring-fill {
+    fill: none;
+    stroke-width: 5;
+    stroke-linecap: round;
+}
+.ring-container .ring-fill.green { stroke: var(--green); }
+.ring-container .ring-fill.yellow { stroke: var(--yellow); }
+.ring-label {
+    font-size: 14px;
+    font-weight: 800;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+.likelihood-text .ll-title {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.likelihood-text .ll-value {
+    font-size: 18px;
+    font-weight: 700;
+    margin-top: 2px;
+}
+.likelihood-text .ll-detail {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+/* ── Tables ── */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border-radius: 10px;
+    overflow: hidden;
+}
+th {
+    background: var(--surface-2);
+    color: var(--brand);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 700;
+}
+td {
+    padding: 12px 16px;
+    border-top: 1px solid var(--surface-2);
+    font-size: 14px;
+}
+
+/* ── Weight bars ── */
+.weight-bar-bg {
+    display: inline-block;
+    width: 60px;
+    height: 8px;
+    background: var(--surface-2);
+    border-radius: 4px;
+    overflow: hidden;
+    vertical-align: middle;
+    margin-right: 8px;
+}
+.weight-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: var(--brand);
+}
+
+/* ── Trust Meter ── */
+.trust-meter {
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 16px;
+}
+.trust-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.trust-score-num {
+    font-size: 28px;
+    font-weight: 800;
+}
+.trust-score-num span { font-size: 14px; color: var(--text-muted); font-weight: 400; }
+.trust-verdict {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 4px 12px;
+    border-radius: 4px;
+}
+.trust-verdict.excellent { background: var(--green-dim); color: var(--green); }
+.trust-verdict.marginal { background: var(--yellow-dim); color: var(--yellow); }
+.trust-verdict.bad { background: var(--red-dim); color: var(--red); }
+.trust-bar-bg {
+    background: var(--surface-2);
+    border-radius: 4px;
+    height: 10px;
+    overflow: hidden;
+}
+.trust-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+}
+.trust-bar-fill.excellent { background: var(--green); }
+.trust-bar-fill.marginal { background: var(--yellow); }
+.trust-bar-fill.bad { background: var(--red); }
+
+/* ── Validation Checks ── */
+.checks {
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 16px 20px;
+}
+.check-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--surface-2);
+}
+.check-item:last-child { border-bottom: none; }
+.check-icon {
+    width: 28px;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+.check-icon.pass { color: var(--green); }
+.check-icon.fail { color: var(--red); }
+.check-icon.info { color: var(--text-muted); }
+.check-name { flex: 1; font-size: 14px; }
+.check-value {
+    font-size: 13px;
+    color: var(--text-muted);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.check-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-left: 8px;
+}
+.check-badge.good { background: var(--green-dim); color: var(--green); }
+.check-badge.ok { background: var(--yellow-dim); color: var(--yellow); }
+.check-badge.poor { background: var(--red-dim); color: var(--red); }
+
+/* ── Recommendations ── */
+.rec-item {
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 18px 24px;
+    margin-bottom: 12px;
+    border-left: 3px solid var(--brand);
+    font-size: 14px;
+    line-height: 1.7;
+}
+.rec-number {
+    color: var(--brand);
+    font-weight: 800;
+    margin-right: 8px;
+}
+
+/* ── Alerts ── */
+.alert {
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-top: 12px;
+    font-size: 13px;
+    line-height: 1.6;
+}
+.alert.blocker {
+    background: var(--red-dim);
+    border-left: 3px solid var(--red);
+    color: #fca5a5;
+}
+.alert.warning {
+    background: var(--yellow-dim);
+    border-left: 3px solid var(--yellow);
+    color: #fde047;
+}
+
+/* ── Methodology ── */
+.method-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+.method-card {
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 18px 20px;
+}
+.method-card .method-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--brand);
+    margin-bottom: 6px;
+}
+.method-card .method-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+/* ── Footer ── */
+.footer {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--surface-2);
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: center;
+}
+
+@media print {
+    body { background: #fff; color: #1e293b; padding: 20px; }
+    .metric-card, table, .trust-meter, .checks, .rec-item,
+    .alert, .takeaway, .ci-container, .likelihood-card, .method-card {
+        background: #f8fafc;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    .ci-bar-track { background: #e2e8f0; }
+    .section { page-break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="brand"><span class="mark">&#9650;</span>LIFT</div>
+        <div class="subtitle">Geo Incrementality Platform</div>
+        <div class="test-name">Michael Todd Beauty — Facebook Incrementality Q1</div>
+        <div class="meta">
+            Facebook &middot;
+            Channel &middot;
+            Shopify And Amazon &middot;
+            6 weeks &middot;
+            2026-01-06 &rarr; 2026-02-16
+        </div>
+        <div class="meta">
+            Test ID: test_mtb_fb_q1_2026 &middot;
+            Treatment: 48 DMAs &middot;
+            Holdout: 16 DMAs
+        </div>
+    </div>
+    
+
+    <div class="takeaway">
+        <div class="takeaway-label">Key Takeaway</div>
+        <strong>Facebook ads are driving real, measurable growth.</strong> The test detected a statistically significant <span class='highlight'>+13.4%</span> incremental lift with an iROAS of <span class='highlight'>2.55x</span> &mdash; every $1 spent generated <span class='highlight'>$2.55</span> in incremental revenue.
+    </div>
+    
+
+    <div class="section">
+        <div class="section-title">Executive Summary</div>
+        <div class="metric-grid">
+            <div class="metric-card green">
+                <div class="metric-label">Incremental Lift</div>
+                <div class="metric-value positive">+13.4%</div>
+                <div class="metric-sub">95% CI: [+6.8%, +20.1%]</div>
+            </div>
+            <div class="metric-card green">
+                <div class="metric-label">Incremental ROAS</div>
+                <div class="metric-value">2.55x</div>
+                <div class="metric-sub">Profitable &middot; CI: [1.31x, 3.78x]</div>
+            </div>
+            <div class="metric-card green">
+                <div class="metric-label">Statistical Significance</div>
+                <div class="metric-value" style="font-size:24px">Significant</div>
+                <div class="metric-sub">p = 0.0012 &middot; Cohen's d = 0.412</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Incremental Revenue</div>
+                <div class="metric-value" style="font-size:24px">$287,431.58</div>
+                <div class="metric-sub">on $112,840.00 total ad spend</div>
+            </div>
+        </div>
+    
+
+        <div class="ci-container">
+            <div class="ci-label">Lift 95% Confidence Interval</div>
+            <div class="ci-bar-track">
+                <div class="ci-bar-zero" style="left:16.7%"></div>
+                <div class="ci-bar-range positive" style="left:39.3%;width:44.3%"></div>
+                <div class="ci-bar-point" style="left:61.3%"></div>
+            </div>
+            <div class="ci-ticks">
+                <span>-5.0%</span>
+                <span>0%</span>
+                <span>+25.0%</span>
+            </div>
+        </div>
+    
+
+        <div class="likelihood-row">
+            <div class="likelihood-card">
+                <div class="ring-container">
+                    <svg viewBox="0 0 64 64">
+                        <circle class="ring-bg" cx="32" cy="32" r="26"/>
+                        <circle class="ring-fill green" cx="32" cy="32" r="26"
+                            stroke-dasharray="162.4 1.0"/>
+                    </svg>
+                    <div class="ring-label">99%</div>
+                </div>
+                <div class="likelihood-text">
+                    <div class="ll-title">Probability of True Lift &gt; 0</div>
+                    <div class="ll-value">99.4%</div>
+                    <div class="ll-detail">Bayesian posterior probability</div>
+                </div>
+            </div>
+            <div class="likelihood-card">
+                <div class="ring-container">
+                    <svg viewBox="0 0 64 64">
+                        <circle class="ring-bg" cx="32" cy="32" r="26"/>
+                        <circle class="ring-fill green" cx="32" cy="32" r="26"
+                            stroke-dasharray="84.1 79.2"/>
+                    </svg>
+                    <div class="ring-label">0.41</div>
+                </div>
+                <div class="likelihood-text">
+                    <div class="ll-title">Effect Size (Cohen's d)</div>
+                    <div class="ll-value">Small-Medium</div>
+                    <div class="ll-detail">Detectable practical significance</div>
+                </div>
+            </div>
+        </div>
+        
+</div>
+
+    <div class="section">
+        <div class="section-title">Revenue Breakdown</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th style="text-align:right">Treatment (48 DMAs)</th>
+                    <th style="text-align:right">Holdout (16 DMAs)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Total Revenue</td>
+                    <td style="text-align:right;font-weight:600">$2,432,891.47</td>
+                    <td style="text-align:right;font-weight:600">$714,280.33</td>
+                </tr>
+                <tr>
+                    <td>Avg Daily / DMA</td>
+                    <td style="text-align:right">$1,206.40</td>
+                    <td style="text-align:right">$1,063.51</td>
+                </tr>
+                <tr>
+                    <td>Organic Baseline (estimated)</td>
+                    <td style="text-align:right;color:var(--text-muted)">$2,142,872.00</td>
+                    <td style="text-align:right">&mdash;</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+
+        <div class="section">
+            <div class="section-title">Cross-Platform iROAS</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Platform</th>
+                        <th style="text-align:right">Incremental Revenue</th>
+                        <th style="text-align:right">iROAS</th>
+                        <th style="text-align:right">Share</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <tr>
+                    <td>Shopify</td>
+                    <td style="text-align:right;font-weight:600">$241,842.30</td>
+                    <td style="text-align:right">2.14x</td>
+                    <td style="text-align:right">84%</td>
+                </tr>
+                <tr>
+                    <td>Amazon</td>
+                    <td style="text-align:right;font-weight:600">$45,589.28</td>
+                    <td style="text-align:right">0.40x</td>
+                    <td style="text-align:right">16%</td>
+                </tr>
+                <tr style="border-top:2px solid var(--surface-2)">
+                    <td><strong>Combined</strong></td>
+                    <td style="text-align:right;font-weight:700">$287,431.58</td>
+                    <td style="text-align:right;font-weight:700">2.55x</td>
+                    <td style="text-align:right;font-weight:700">100%</td>
+                </tr></tbody>
+            </table>
+        </div>
+        
+
+        <div class="section">
+            <div class="section-title">Platform-Level Incrementality</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Platform</th>
+                        <th style="text-align:right">Lift</th>
+                        <th style="text-align:right">95% CI</th>
+                        <th style="text-align:center">Sig.</th>
+                        <th style="text-align:right">p-value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <tr>
+                    <td>Shopify</td>
+                    <td style="text-align:right;font-weight:600;color:var(--green)">+14.2%</td>
+                    <td style="text-align:right">[+7.4%, +21.1%]</td>
+                    <td style="text-align:center"><span class="check-icon pass">&#10003;</span></td>
+                    <td style="text-align:right">0.0009</td>
+                </tr>
+                <tr>
+                    <td>Amazon</td>
+                    <td style="text-align:right;font-weight:600;color:var(--green)">+6.7%</td>
+                    <td style="text-align:right">[+0.8%, +12.6%]</td>
+                    <td style="text-align:center"><span class="check-icon pass">&#10003;</span></td>
+                    <td style="text-align:right">0.0284</td>
+                </tr></tbody>
+            </table>
+        </div>
+        
+
+        <div class="section">
+            <div class="section-title">Model Ensemble</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Model</th>
+                        <th style="text-align:right">Weight</th>
+                        <th style="text-align:right">Lift</th>
+                        <th style="text-align:right">p-value</th>
+                        <th style="text-align:center">Sig.</th>
+                        <th style="text-align:right">L2</th>
+                        <th style="text-align:right">R&sup2;</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <tr>
+                    <td><strong>ASCM</strong></td>
+                    <td style="text-align:right">
+                        <span class="weight-bar-bg"><span class="weight-bar-fill" style="width:45%"></span></span>
+                        45%
+                    </td>
+                    <td style="text-align:right;font-weight:600">+14.1%</td>
+                    <td style="text-align:right">0.0008</td>
+                    <td style="text-align:center"><span class="check-icon pass">&#10003;</span></td>
+                    <td style="text-align:right;color:var(--text-muted)">0.0190</td>
+                    <td style="text-align:right;color:var(--text-muted)">0.968</td>
+                </tr>
+                <tr>
+                    <td><strong>BSTS</strong></td>
+                    <td style="text-align:right">
+                        <span class="weight-bar-bg"><span class="weight-bar-fill" style="width:35%"></span></span>
+                        35%
+                    </td>
+                    <td style="text-align:right;font-weight:600">+12.8%</td>
+                    <td style="text-align:right">0.0031</td>
+                    <td style="text-align:center"><span class="check-icon pass">&#10003;</span></td>
+                    <td style="text-align:right;color:var(--text-muted)">0.0310</td>
+                    <td style="text-align:right;color:var(--text-muted)">0.952</td>
+                </tr>
+                <tr>
+                    <td><strong>DID</strong></td>
+                    <td style="text-align:right">
+                        <span class="weight-bar-bg"><span class="weight-bar-fill" style="width:20%"></span></span>
+                        20%
+                    </td>
+                    <td style="text-align:right;font-weight:600">+13.2%</td>
+                    <td style="text-align:right">0.0019</td>
+                    <td style="text-align:center"><span class="check-icon pass">&#10003;</span></td>
+                    <td style="text-align:right;color:var(--text-muted)">&mdash;</td>
+                    <td style="text-align:right;color:var(--text-muted)">&mdash;</td>
+                </tr></tbody>
+            </table>
+            <div style="color: var(--text-muted); font-size: 12px; padding: 8px 0 0 0;">
+                Final estimate: Ensemble Weighted
+                 &middot; P(true lift > 0): 99.4%
+            </div>
+        </div>
+        
+
+        <div class="section">
+            <div class="section-title">Validation &amp; Trust Score</div>
+            <div class="trust-meter">
+                <div class="trust-header">
+                    <span class="trust-score-num">87<span>/100</span></span>
+                    <span class="trust-verdict excellent">Trustworthy</span>
+                </div>
+                <div class="trust-bar-bg">
+                    <div class="trust-bar-fill excellent" style="width:87%"></div>
+                </div>
+            </div>
+
+            <div class="checks">
+                <div class="check-item">
+                    <span class="check-icon pass">&#10003;</span>
+                    <span class="check-name">AA Test (pre-period balance)</span>
+                    <span class="check-value">p = 0.6810</span>
+                </div>
+                <div class="check-item">
+                    <span class="check-icon info">&#9679;</span>
+                    <span class="check-name">Pre-period L2 Imbalance</span>
+                    <span class="check-value">0.0230</span>
+                    <span class="check-badge good">Good</span>
+                </div>
+                <div class="check-item">
+                    <span class="check-icon info">&#9679;</span>
+                    <span class="check-name">Pre-period R&sup2;</span>
+                    <span class="check-value">0.961</span>
+                    <span class="check-badge good">Good</span>
+                </div>
+                <div class="check-item">
+                    <span class="check-icon pass">&#10003;</span>
+                    <span class="check-name">Placebo False Positive Rate (20 tests)</span>
+                    <span class="check-value">5%</span>
+                    <span class="check-badge good">Calibrated</span>
+                </div>
+                <div class="check-item">
+                    <span class="check-icon pass">&#10003;</span>
+                    <span class="check-name">Estimator Agreement</span>
+                    <span class="check-value">89%</span>
+                    <span class="check-badge good">Strong</span>
+                </div>
+            </div>
+            <div class="alert warning">&#9888; 3 DMAs in the holdout group had partial ad exposure during week 2 (spend &lt; $50). Effect on results is negligible.</div>
+        </div>
+        
+
+    <div class="section">
+        <div class="section-title">Methodology</div>
+        <div class="method-grid">
+            <div class="method-card">
+                <div class="method-name">ASCM</div>
+                <div class="method-desc">
+                    Augmented Synthetic Control Method.
+                    Builds a weighted combination of holdout DMAs to create a
+                    synthetic treatment counterfactual, with ridge-augmented bias correction.
+                </div>
+            </div>
+            <div class="method-card">
+                <div class="method-name">BSTS</div>
+                <div class="method-desc">
+                    Bayesian Structural Time Series.
+                    Models the counterfactual using a state-space time series
+                    with spike-and-slab variable selection on control DMAs.
+                </div>
+            </div>
+            <div class="method-card">
+                <div class="method-name">DiD</div>
+                <div class="method-desc">
+                    Difference-in-Differences.
+                    Compares pre-to-post changes in treatment vs. holdout groups
+                    to estimate the causal effect, controlling for time trends.
+                </div>
+            </div>
+        </div>
+        <div style="color: var(--text-muted); font-size: 12px; margin-top: 12px; line-height: 1.6;">
+            The final estimate is a weighted ensemble of all three methods. Weights are
+            assigned based on pre-period fit quality (L2 imbalance, R&sup2;) and cross-validation
+            performance. Results are validated with placebo tests, AA balance checks, and
+            estimator agreement analysis.
+        </div>
+    </div>
+    
+
+        <div class="section">
+            <div class="section-title">Recommendations</div>
+            
+            <div class="rec-item">
+                <span class="rec-number">1.</span>The test reached statistical significance (p=0.001). There is strong evidence that Facebook ads drive +13.4% incremental lift across Shopify and Amazon combined. This result is corroborated by all three estimators (ASCM, BSTS, DiD) with high agreement (89%).
+            </div>
+            <div class="rec-item">
+                <span class="rec-number">2.</span>iROAS of 2.55x is profitable — every $1 spent on Facebook generates $2.55 in incremental revenue. Current spend level of ~$112K over 6 weeks appears efficient. Consider testing a 15-20% budget increase to find the diminishing returns curve.
+            </div>
+            <div class="rec-item">
+                <span class="rec-number">3.</span>Significant Amazon halo effect detected: +6.7% incremental lift on Amazon (p=0.028). Facebook ads are driving cross-platform conversions that platform-reported ROAS cannot capture. Amazon accounts for 16% of total incremental returns — this is revenue you'd miss with platform-only measurement.
+            </div>
+            <div class="rec-item">
+                <span class="rec-number">4.</span>Cross-platform iROAS breakdown: Shopify $2.14x + Amazon $0.40x = Combined $2.55x. Without measuring the Amazon halo, you'd undervalue Facebook by 19%. Factor this into budget allocation decisions.
+            </div>
+            <div class="rec-item">
+                <span class="rec-number">5.</span>Trust score: 87/100 (Trustworthy). All validation checks passed — pre-period balance is excellent (L2=0.023, R²=0.961), placebo tests show 5% false positive rate (calibrated), and all three estimators agree on direction and magnitude. Safe to make budget decisions based on these results.
+            </div>
+        </div>
+        
+
+    <div class="footer">
+        Generated by <strong>LIFT</strong> &mdash; Geo Incrementality Platform &middot; 2026-02-14 15:25 UTC
+    </div>
+    
+</body>
+</html>
