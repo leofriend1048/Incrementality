@@ -1,12 +1,11 @@
-"""Command-line interface for the incrementality testing platform.
+"""LIFT — Command-line interface for geo incrementality testing.
 
 Usage:
     incrementality design --channel facebook --name "FB Q1 Test"
     incrementality design --channel youtube --scope campaign --campaigns "123,456"
     incrementality analyze --test-id test_abc123
     incrementality list
-    incrementality report --test-id test_abc123
-    incrementality demo  # Run with synthetic data
+    incrementality demo
 """
 
 from __future__ import annotations
@@ -20,14 +19,32 @@ from pathlib import Path
 import click
 import numpy as np
 import pandas as pd
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
 
 from incrementality.config import Config, StatisticalConfig
 from incrementality.models import AdChannel, MeasurementScope, TestScope
+from incrementality.ui import (
+    BRAND,
+    VERSION,
+    banner,
+    branded_table,
+    card,
+    console,
+    done,
+    fail,
+    info,
+    kv,
+    iroas_value,
+    lift_value,
+    money,
+    result_card,
+    score_bar,
+    section,
+    sig_badge,
+    spacer,
+    step,
+    warning,
+)
 
-console = Console()
 logger = logging.getLogger("incrementality")
 
 
@@ -40,16 +57,18 @@ def _setup_logging(verbose: bool) -> None:
     )
 
 
-@click.group()
+# ── Main Group ────────────────────────────────────────────────────────────────
+
+@click.group(invoke_without_command=True)
 @click.option("--config", "config_path", type=click.Path(), default=None,
               help="Path to config YAML file")
 @click.option("-v", "--verbose", is_flag=True, help="Enable debug logging")
 @click.pass_context
 def cli(ctx: click.Context, config_path: str | None, verbose: bool) -> None:
-    """Incrementality Testing Platform
+    """LIFT — Geo Incrementality Platform
 
-    Design, run, and analyze geo holdout tests to measure true incremental
-    ROAS across Shopify and Amazon for your ad channels.
+    Design, run, and analyze geo holdout tests to measure
+    true incremental ROAS across Shopify and Amazon.
     """
     _setup_logging(verbose)
     ctx.ensure_object(dict)
@@ -58,6 +77,13 @@ def cli(ctx: click.Context, config_path: str | None, verbose: bool) -> None:
     else:
         ctx.obj["config"] = Config()
 
+    if ctx.invoked_subcommand is None:
+        banner()
+        console.print("  [muted]Run[/muted] [accent]incrementality --help[/accent] [muted]for usage.[/muted]")
+        spacer()
+
+
+# ── Design Command ────────────────────────────────────────────────────────────
 
 @cli.command()
 @click.option("--channel", type=click.Choice(["facebook", "youtube"]),
@@ -72,7 +98,7 @@ def cli(ctx: click.Context, config_path: str | None, verbose: bool) -> None:
 @click.option("--name", default="Incrementality Test",
               help="Test name")
 @click.option("--target-mde", type=float, default=None,
-              help="Target minimum detectable effect (e.g., 0.10 for 10%)")
+              help="Target minimum detectable effect (e.g., 0.10 for 10%%)")
 @click.option("--data-dir", type=click.Path(), default=None,
               help="Directory with CSV data files")
 @click.option("--lookback-weeks", type=int, default=12,
@@ -89,12 +115,10 @@ def design(
     data_dir: str | None,
     lookback_weeks: int,
 ) -> None:
-    """Design an optimal incrementality test.
-
-    Analyzes historical data and produces a statistically sound test design
-    with matched treatment/holdout DMA cells.
-    """
+    """Design an optimal incrementality test."""
     from incrementality.orchestrator import TestOrchestrator
+
+    banner()
 
     config = ctx.obj["config"]
     orchestrator = TestOrchestrator(config)
@@ -104,33 +128,39 @@ def design(
     measurement_scope = MeasurementScope(measure)
     campaign_ids = campaigns.split(",") if campaigns else None
 
+    # Configuration summary
+    section("Test Configuration")
+    kv("Channel", f"[accent]{channel.title()}[/accent]")
+    kv("Scope", scope.replace("_", " ").title())
+    kv("Measuring", measure.replace("_", " ").title())
+    kv("Lookback", f"{lookback_weeks} weeks")
+    if campaign_ids:
+        kv("Campaigns", ", ".join(campaign_ids))
+    spacer()
+
     # Load data
     data = None
     if data_dir:
-        data = orchestrator.load_data_from_csv(data_dir)
+        with step("Loading historical data from CSV"):
+            data = orchestrator.load_data_from_csv(data_dir)
 
-    console.print(Panel(
-        f"Channel: [bold]{channel}[/bold]\n"
-        f"Scope: {scope}\n"
-        f"Measuring: {measure.replace('_', ' ')}\n"
-        f"Lookback: {lookback_weeks} weeks",
-        title="Designing Incrementality Test",
-        border_style="blue",
-    ))
+    with step("Running automatic test design"):
+        test_design = orchestrator.design_test(
+            ad_channel=ad_channel,
+            test_scope=test_scope,
+            measurement_scope=measurement_scope,
+            campaign_ids=campaign_ids,
+            test_name=name,
+            target_mde=target_mde,
+            data=data,
+            lookback_weeks=lookback_weeks,
+        )
 
-    design = orchestrator.design_test(
-        ad_channel=ad_channel,
-        test_scope=test_scope,
-        measurement_scope=measurement_scope,
-        campaign_ids=campaign_ids,
-        test_name=name,
-        target_mde=target_mde,
-        data=data,
-        lookback_weeks=lookback_weeks,
-    )
+    spacer()
+    _print_design(test_design)
 
-    _print_design(design)
 
+# ── Analyze Command ───────────────────────────────────────────────────────────
 
 @cli.command()
 @click.option("--test-id", required=True, help="Test ID to analyze")
@@ -141,11 +171,14 @@ def analyze(ctx: click.Context, test_id: str, data_dir: str | None) -> None:
     """Analyze a completed test and generate the incrementality report."""
     from incrementality.orchestrator import TestOrchestrator
 
+    banner()
+
     config = ctx.obj["config"]
     orchestrator = TestOrchestrator(config)
 
-    design = orchestrator.load_design(test_id)
-    console.print(f"Loaded test design: [bold]{design.name}[/bold]")
+    with step("Loading test design"):
+        test_design = orchestrator.load_design(test_id)
+    done(f"Loaded [accent]{test_design.name}[/accent]")
 
     pre_data = None
     post_data = None
@@ -153,52 +186,78 @@ def analyze(ctx: click.Context, test_id: str, data_dir: str | None) -> None:
 
     if data_dir:
         csv_dir = Path(data_dir)
-        pre_path = csv_dir / "pre_period.csv"
-        post_path = csv_dir / "post_period.csv"
-        spend_path = csv_dir / "ad_spend.csv"
-        if pre_path.exists():
-            pre_data = pd.read_csv(pre_path, parse_dates=["date"])
-        if post_path.exists():
-            post_data = pd.read_csv(post_path, parse_dates=["date"])
-        if spend_path.exists():
-            ad_spend = pd.read_csv(spend_path, parse_dates=["date"])
+        with step("Loading test period data"):
+            pre_path = csv_dir / "pre_period.csv"
+            post_path = csv_dir / "post_period.csv"
+            spend_path = csv_dir / "ad_spend.csv"
+            if pre_path.exists():
+                pre_data = pd.read_csv(pre_path, parse_dates=["date"])
+            if post_path.exists():
+                post_data = pd.read_csv(post_path, parse_dates=["date"])
+            if spend_path.exists():
+                ad_spend = pd.read_csv(spend_path, parse_dates=["date"])
 
-    report = orchestrator.analyze_test(
-        design, pre_data, post_data, ad_spend,
-    )
-    console.print(f"\nReport saved to: [bold]{config.output_dir}[/bold]")
+    with step("Running causal inference analysis"):
+        report = orchestrator.analyze_test(
+            test_design, pre_data, post_data, ad_spend,
+        )
 
+    spacer()
+    done(f"Report saved to [accent]{config.output_dir}[/accent]")
+    spacer()
+
+
+# ── List Command ──────────────────────────────────────────────────────────────
 
 @cli.command("list")
 @click.pass_context
 def list_tests(ctx: click.Context) -> None:
-    """List all tests."""
+    """List all saved tests."""
     from incrementality.orchestrator import TestOrchestrator
+
+    banner()
 
     config = ctx.obj["config"]
     orchestrator = TestOrchestrator(config)
     tests = orchestrator.list_tests()
 
     if not tests:
-        console.print("No tests found.")
+        info("No tests found. Run [accent]incrementality design[/accent] to create one.")
+        spacer()
         return
 
-    table = Table(title="Tests")
-    table.add_column("Test ID", style="bold")
+    section("Tests")
+
+    table = branded_table("", show_header=True)
+    table.add_column("Test ID", style="accent")
     table.add_column("Name")
-    table.add_column("Status")
-    table.add_column("Channel")
-    table.add_column("Duration")
+    table.add_column("Status", justify="center")
+    table.add_column("Channel", justify="center")
+    table.add_column("Duration", justify="right")
+
     for t in tests:
+        status = t["status"]
+        if status == "analyzed":
+            status_display = "[ok]● analyzed[/ok]"
+        elif status == "running":
+            status_display = "[accent]● running[/accent]"
+        elif status == "designed":
+            status_display = "[muted]● designed[/muted]"
+        else:
+            status_display = f"[muted]● {status}[/muted]"
+
         table.add_row(
             t["test_id"],
             t["name"],
-            t["status"],
-            t["channel"],
-            f"{t['duration_weeks']} weeks",
+            status_display,
+            t["channel"].title(),
+            f"{t['duration_weeks']}w",
         )
     console.print(table)
+    spacer()
 
+
+# ── Demo Command ──────────────────────────────────────────────────────────────
 
 @cli.command()
 @click.option("--channel", type=click.Choice(["facebook", "youtube"]),
@@ -207,7 +266,7 @@ def list_tests(ctx: click.Context) -> None:
     "shopify_only", "amazon_only", "shopify_and_amazon"
 ]), default="shopify_and_amazon", help="Revenue to measure")
 @click.option("--true-lift", type=float, default=0.12,
-              help="True lift to simulate (e.g., 0.12 for 12%)")
+              help="True lift to simulate (e.g., 0.12 for 12%%)")
 @click.option("--amazon-halo", type=float, default=0.05,
               help="Amazon halo effect to simulate")
 @click.option("--num-dmas", type=int, default=80,
@@ -224,23 +283,23 @@ def demo(
 ) -> None:
     """Run a full demo with synthetic data.
 
-    Generates realistic synthetic data, designs a test, simulates the
-    test period, and produces the incrementality report.
+    Generates realistic data, designs a test, simulates the test period,
+    and produces the full incrementality report.
     """
     from incrementality.orchestrator import TestOrchestrator
 
-    console.print(Panel(
-        f"True Shopify lift: [bold]{true_lift:.0%}[/bold]\n"
-        f"Amazon halo: [bold]{amazon_halo:.0%}[/bold]\n"
-        f"Channel: [bold]{channel}[/bold]\n"
-        f"DMAs: {num_dmas} | History: {weeks} weeks",
-        title="Demo: Synthetic Incrementality Test",
-        border_style="green",
-    ))
+    banner()
+    section("Demo Mode")
+    kv("True Shopify lift", f"[ok]{true_lift:.0%}[/ok]")
+    kv("Amazon halo", f"[ok]{amazon_halo:.0%}[/ok]")
+    kv("Channel", f"[accent]{channel.title()}[/accent]")
+    kv("DMAs", str(num_dmas))
+    kv("History", f"{weeks} weeks")
+    spacer()
 
-    # Generate synthetic data
-    console.print("\n[dim]Generating synthetic historical data...[/dim]")
-    data = _generate_synthetic_data(num_dmas, weeks, channel)
+    # Step 1: Generate data
+    with step(f"Generating synthetic data ({num_dmas} DMAs × {weeks}w)"):
+        data = _generate_synthetic_data(num_dmas, weeks, channel)
 
     config = Config(
         statistical=StatisticalConfig(
@@ -253,75 +312,115 @@ def demo(
     ad_channel = AdChannel(channel)
     measurement_scope = MeasurementScope(measure)
 
-    # Design
-    console.print("[dim]Running automatic test design...[/dim]\n")
-    test_design = orchestrator.design_test(
-        ad_channel=ad_channel,
-        measurement_scope=measurement_scope,
-        test_name=f"Demo: {channel.title()} Incrementality",
-        data=data,
-        lookback_weeks=weeks,
-        run_simulation=False,
-    )
+    # Step 2: Design
+    with step("Running automatic test design"):
+        test_design = orchestrator.design_test(
+            ad_channel=ad_channel,
+            measurement_scope=measurement_scope,
+            test_name=f"Demo: {channel.title()} Incrementality",
+            data=data,
+            lookback_weeks=weeks,
+            run_simulation=False,
+        )
+
+    spacer()
     _print_design(test_design)
 
-    # Simulate test period
-    console.print("\n[dim]Simulating test period with known lift...[/dim]")
-    pre_data, post_data, spend_data = _simulate_test_period(
-        test_design, data, true_lift, amazon_halo, channel,
-    )
+    # Step 3: Simulate
+    with step("Simulating test period with known lift"):
+        pre_data, post_data, spend_data = _simulate_test_period(
+            test_design, data, true_lift, amazon_halo, channel,
+        )
 
-    # Analyze
-    console.print("[dim]Running analysis...[/dim]\n")
-    report = orchestrator.analyze_test(
-        test_design, pre_data, post_data, spend_data,
-    )
+    # Step 4: Analyze
+    with step("Running causal inference (ASCM + BSTS + DiD)"):
+        report = orchestrator.analyze_test(
+            test_design, pre_data, post_data, spend_data,
+        )
 
+    spacer()
+    section("Ground Truth Comparison")
+    kv("True lift (injected)", f"[ok]{true_lift:.1%}[/ok]")
+    kv("Measured lift", lift_value(
+        report.incrementality.relative_lift,
+        report.incrementality.lift_lower_ci,
+        report.incrementality.lift_upper_ci,
+        report.incrementality.is_significant,
+    ))
+    error_pct = abs(report.incrementality.relative_lift - true_lift) / true_lift
+    kv("Estimation error", f"[muted]{error_pct:.1%}[/muted]")
+    spacer()
+
+
+# ── Design Printer ────────────────────────────────────────────────────────────
 
 def _print_design(design) -> None:
-    """Print test design summary."""
-    table = Table(title="Test Design", show_header=False, border_style="dim")
-    table.add_column("", style="bold")
-    table.add_column("")
-    table.add_row("Test ID", design.test_id)
-    table.add_row("Name", design.name)
-    table.add_row("Channel", design.ad_channel.value.title())
-    table.add_row("Scope", design.test_scope.value.title())
-    table.add_row("Measurement", design.measurement_scope.value.replace("_", " ").title())
-    table.add_row("Treatment DMAs", str(design.num_treatment_dmas))
-    table.add_row("Holdout DMAs", str(design.num_holdout_dmas))
-    table.add_row("Duration", f"{design.duration_weeks} weeks")
-    if design.recommended_start_date:
-        table.add_row("Start Date", str(design.recommended_start_date))
-        table.add_row("End Date", str(design.recommended_end_date))
-    table.add_row("Balance Score", f"{design.balance_score:.3f}")
+    """Print a branded test design summary."""
+    section("Test Design")
 
+    kv("Test ID", f"[accent]{design.test_id}[/accent]")
+    kv("Name", design.name)
+    kv("Channel", f"[accent]{design.ad_channel.value.title()}[/accent]")
+    kv("Scope", design.test_scope.value.replace("_", " ").title())
+    kv("Measurement", design.measurement_scope.value.replace("_", " ").title())
+    if design.campaign_ids:
+        kv("Campaigns", ", ".join(design.campaign_ids))
+    spacer()
+
+    kv("Treatment DMAs", f"[heading]{design.num_treatment_dmas}[/heading]")
+    kv("Holdout DMAs", f"[heading]{design.num_holdout_dmas}[/heading]")
+    kv("Duration", f"[heading]{design.duration_weeks} weeks[/heading]")
+    if design.recommended_start_date:
+        kv("Start date", str(design.recommended_start_date))
+        kv("End date", str(design.recommended_end_date))
+    kv("Balance score", f"{design.balance_score:.3f}")
+    spacer()
+
+    # Power analysis
     if design.power_analysis:
         pa = design.power_analysis
-        table.add_row("", "")
-        table.add_row("Min Detectable Effect", f"{pa.minimum_detectable_effect:.1%}")
-        table.add_row("Statistical Power", f"{pa.statistical_power:.1%}")
+        section("Power Analysis")
+        kv("Min Detectable Effect", f"[heading]{pa.minimum_detectable_effect:.1%}[/heading]")
+
+        # Power bar
+        power_bar = score_bar(pa.statistical_power * 100, 100, 20)
+        kv("Statistical Power", f"{power_bar}  {pa.statistical_power:.0%}")
+
         if pa.simulated_power > 0:
-            table.add_row("Simulated Power", f"{pa.simulated_power:.1%}")
-            table.add_row("Simulated FPR", f"{pa.simulated_false_positive_rate:.1%}")
-            table.add_row("Num Simulations", str(pa.num_simulations))
-        table.add_row("Significance Level", f"{pa.significance_level:.0%}")
-        table.add_row("Cohen's d", f"{pa.effect_size_cohen_d:.3f}")
+            sim_bar = score_bar(pa.simulated_power * 100, 100, 20)
+            kv("Simulated Power", f"{sim_bar}  {pa.simulated_power:.0%}")
+            kv("Simulated FPR", f"{pa.simulated_false_positive_rate:.1%}")
+            kv("Simulations", str(pa.num_simulations))
+
+        kv("Significance Level", f"{pa.significance_level:.0%}")
+        kv("Cohen's d", f"{pa.effect_size_cohen_d:.3f}")
+
         if pa.power_score > 0:
-            score_style = "green" if pa.power_score >= 85 else ("yellow" if pa.power_score >= 70 else "red")
-            table.add_row("Power Score", f"[{score_style}]{pa.power_score:.0f}/100[/{score_style}]")
+            ps_bar = score_bar(pa.power_score, 100, 20)
+            kv("Power Score", f"{ps_bar}  [heading]{pa.power_score:.0f}/100[/heading]")
+        spacer()
 
-    console.print(table)
+    # DMA assignments
+    section("DMA Assignments")
+    console.print(f"    [label]Treatment ({design.num_treatment_dmas}):[/label]")
+    _print_dma_list(design.treatment_cell.dma_codes, indent=6)
+    spacer()
+    console.print(f"    [label]Holdout ({design.num_holdout_dmas}):[/label]")
+    _print_dma_list(design.holdout_cell.dma_codes, indent=6)
+    spacer()
 
-    # Print DMA assignments
-    console.print(f"\n[bold]Treatment DMAs ({design.num_treatment_dmas}):[/bold]")
-    console.print(", ".join(design.treatment_cell.dma_codes[:20]))
-    if len(design.treatment_cell.dma_codes) > 20:
-        console.print(f"  ... and {len(design.treatment_cell.dma_codes) - 20} more")
 
-    console.print(f"\n[bold]Holdout DMAs ({design.num_holdout_dmas}):[/bold]")
-    console.print(", ".join(design.holdout_cell.dma_codes))
+def _print_dma_list(codes: list[str], indent: int = 6, max_show: int = 20) -> None:
+    """Print a compact DMA code list."""
+    pad = " " * indent
+    show = codes[:max_show]
+    line = ", ".join(show)
+    console.print(f"{pad}[muted]{line}[/muted]")
+    if len(codes) > max_show:
+        console.print(f"{pad}[muted]... and {len(codes) - max_show} more[/muted]")
 
+
+# ── Synthetic Data Generator ──────────────────────────────────────────────────
 
 def _generate_synthetic_data(
     num_dmas: int,
@@ -333,8 +432,6 @@ def _generate_synthetic_data(
 
     rng = np.random.default_rng(seed=42)
     all_dmas = get_all_dmas()[:num_dmas]
-    dma_codes = [d.dma_code for d in all_dmas]
-    populations = {d.dma_code: d.population for d in all_dmas}
 
     end_date = date.today()
     start_date = end_date - timedelta(weeks=weeks)
@@ -345,17 +442,14 @@ def _generate_synthetic_data(
     records_ad = []
 
     for dma in all_dmas:
-        pop_factor = dma.population / 1_000_000  # Scale by pop in millions
+        pop_factor = dma.population / 1_000_000
         base_shopify = 500 * pop_factor + rng.normal(0, 50 * pop_factor)
         base_amazon = 200 * pop_factor + rng.normal(0, 30 * pop_factor)
         base_spend = 100 * pop_factor + rng.normal(0, 10 * pop_factor)
 
         for d in dates:
-            # Day of week effect
-            dow_effect = 1.0 + 0.15 * (d.dayofweek in [5, 6])  # Weekend boost
-            # Seasonal trend
+            dow_effect = 1.0 + 0.15 * (d.dayofweek in [5, 6])
             seasonal = 1.0 + 0.05 * np.sin(2 * np.pi * d.dayofyear / 365)
-            # Noise
             noise_s = rng.normal(1.0, 0.15)
             noise_a = rng.normal(1.0, 0.20)
             noise_spend = rng.normal(1.0, 0.10)
@@ -387,16 +481,14 @@ def _generate_synthetic_data(
                 "clicks": int(spend * rng.normal(2, 0.5)),
             })
 
-    shopify_df = pd.DataFrame(records_shopify)
-    amazon_df = pd.DataFrame(records_amazon)
-    ad_df = pd.DataFrame(records_ad)
-
     return {
-        "shopify": shopify_df,
-        "amazon": amazon_df,
-        "facebook" if channel == "facebook" else "youtube": ad_df,
+        "shopify": pd.DataFrame(records_shopify),
+        "amazon": pd.DataFrame(records_amazon),
+        "facebook" if channel == "facebook" else "youtube": pd.DataFrame(records_ad),
     }
 
+
+# ── Test Period Simulator ─────────────────────────────────────────────────────
 
 def _simulate_test_period(
     design,
@@ -409,9 +501,7 @@ def _simulate_test_period(
     rng = np.random.default_rng(seed=123)
     treatment_dmas = set(design.treatment_cell.dma_codes)
     holdout_dmas = set(design.holdout_cell.dma_codes)
-    all_dmas = treatment_dmas | holdout_dmas
 
-    # Use last few weeks of historical as pre-period
     shopify = historical_data.get("shopify", pd.DataFrame())
     amazon = historical_data.get("amazon", pd.DataFrame())
     ad_key = "facebook" if channel == "facebook" else "youtube"
@@ -428,39 +518,38 @@ def _simulate_test_period(
     max_date = shopify["date"].max()
     total_days = (max_date - min_date).days
 
-    # Split available data: ~60% pre-period, ~40% test period
-    # Ensure at least 14 days for each period
+    # Split available data: ~60% pre / ~40% test
     test_days = min(total_days * 2 // 5, total_days - 14)
     test_days = max(test_days, 14)
-    pre_days = total_days - test_days
 
     test_end = max_date
     test_start = test_end - timedelta(days=test_days)
     pre_start = min_date
 
-    # Pre-period data
     pre_mask = (shopify["date"] >= pd.Timestamp(pre_start)) & (shopify["date"] < pd.Timestamp(test_start))
     post_mask = (shopify["date"] >= pd.Timestamp(test_start)) & (shopify["date"] <= pd.Timestamp(test_end))
 
     pre_shopify = shopify[pre_mask].copy()
     post_shopify = shopify[post_mask].copy()
 
-    # Apply treatment effect to treatment DMAs in post period
+    # Apply treatment effect
     treatment_mask = post_shopify["dma_code"].isin(treatment_dmas)
     post_shopify.loc[treatment_mask, "revenue"] *= (1 + true_lift)
     post_shopify.loc[treatment_mask, "orders"] = (
         post_shopify.loc[treatment_mask, "orders"] * (1 + true_lift * 0.8)
     ).astype(int)
 
-    # Build combined pre/post with both platforms
     pre_data = pre_shopify.rename(columns={"revenue": "shopify_revenue", "orders": "shopify_orders"})
     post_data = post_shopify.rename(columns={"revenue": "shopify_revenue", "orders": "shopify_orders"})
 
     if not amazon.empty:
-        pre_amazon = amazon[(amazon["date"] >= pd.Timestamp(pre_start)) & (amazon["date"] < pd.Timestamp(test_start))].copy()
-        post_amazon = amazon[(amazon["date"] >= pd.Timestamp(test_start)) & (amazon["date"] <= pd.Timestamp(test_end))].copy()
+        pre_amazon = amazon[
+            (amazon["date"] >= pd.Timestamp(pre_start)) & (amazon["date"] < pd.Timestamp(test_start))
+        ].copy()
+        post_amazon = amazon[
+            (amazon["date"] >= pd.Timestamp(test_start)) & (amazon["date"] <= pd.Timestamp(test_end))
+        ].copy()
 
-        # Amazon halo effect
         amazon_treatment_mask = post_amazon["dma_code"].isin(treatment_dmas)
         post_amazon.loc[amazon_treatment_mask, "revenue"] *= (1 + amazon_halo)
 
@@ -480,41 +569,32 @@ def _simulate_test_period(
     pre_data = pre_data.fillna(0)
     post_data = post_data.fillna(0)
 
-    # Combined revenue
     for df in [pre_data, post_data]:
         rev_cols = [c for c in df.columns if c.endswith("_revenue")]
         df["revenue"] = df[rev_cols].sum(axis=1)
 
-    # Ad spend data (holdout gets zero)
+    # Ad spend (holdout gets zero)
     spend_data = pd.DataFrame()
     if not ad_data.empty:
         spend_mask = (ad_data["date"] >= pd.Timestamp(test_start)) & (ad_data["date"] <= pd.Timestamp(test_end))
         spend_data = ad_data[spend_mask].copy()
-        # Zero out spend in holdout DMAs
         holdout_spend_mask = spend_data["dma_code"].isin(holdout_dmas)
         spend_data.loc[holdout_spend_mask, "spend"] = 0
     else:
-        # Generate synthetic spend
         records = []
         dates = pd.date_range(test_start, test_end, freq="D")
         for dma in treatment_dmas:
             for d in dates:
-                records.append({
-                    "date": d,
-                    "dma_code": dma,
-                    "spend": rng.normal(100, 20),
-                })
+                records.append({"date": d, "dma_code": dma, "spend": rng.normal(100, 20)})
         for dma in holdout_dmas:
             for d in dates:
-                records.append({
-                    "date": d,
-                    "dma_code": dma,
-                    "spend": 0,
-                })
+                records.append({"date": d, "dma_code": dma, "spend": 0})
         spend_data = pd.DataFrame(records)
 
     return pre_data, post_data, spend_data
 
+
+# ── Boundaries Commands ───────────────────────────────────────────────────────
 
 @cli.group()
 def boundaries() -> None:
@@ -538,51 +618,44 @@ def boundaries_compute(
     buffer_miles: float,
     output_dir: str,
 ) -> None:
-    """Compute DMA adjacency from a GeoJSON boundary file.
-
-    Downloads a DMA boundaries GeoJSON and computes which DMAs share
-    borders using polygon intersection. Results are cached for use
-    by the spillover analysis.
-
-    Example:
-        incrementality boundaries compute --input dma_boundaries.geojson
-    """
+    """Compute DMA adjacency from a GeoJSON boundary file."""
     from incrementality.design.dma_boundaries import compute_adjacency_from_geojson
 
-    console.print(Panel(
-        f"Input: [bold]{geojson_path}[/bold]\n"
-        f"Buffer: {buffer_miles} miles\n"
-        f"Output: {output_dir}/dma_adjacency.json",
-        title="Computing DMA Adjacency",
-        border_style="blue",
-    ))
+    banner()
+    section("Compute Polygon Adjacency")
+    kv("Input", f"[accent]{geojson_path}[/accent]")
+    kv("Buffer", f"{buffer_miles} miles")
+    kv("Output", f"{output_dir}/dma_adjacency.json")
+    spacer()
 
     try:
-        adjacency = compute_adjacency_from_geojson(
-            geojson_path,
-            dma_code_field=dma_field,
-            buffer_miles=buffer_miles,
-            cache_dir=output_dir,
-        )
+        with step("Computing adjacency from polygon boundaries"):
+            adjacency = compute_adjacency_from_geojson(
+                geojson_path,
+                dma_code_field=dma_field,
+                buffer_miles=buffer_miles,
+                cache_dir=output_dir,
+            )
         n_edges = sum(len(v) for v in adjacency.values()) // 2
-        console.print(
-            f"\n[green]Computed adjacency for {len(adjacency)} DMAs "
-            f"with {n_edges} border pairs[/green]"
-        )
-        # Show sample
+        done(f"Computed adjacency for {len(adjacency)} DMAs with {n_edges} border pairs")
+        spacer()
+
+        # Sample output
         sample_dmas = list(adjacency.keys())[:5]
         for dma in sample_dmas:
             neighbors = adjacency[dma]
-            console.print(f"  {dma}: {len(neighbors)} neighbors -> {neighbors[:5]}")
+            kv(f"DMA {dma}", f"{len(neighbors)} neighbors → {neighbors[:5]}")
         if len(adjacency) > 5:
-            console.print(f"  ... and {len(adjacency) - 5} more DMAs")
+            info(f"... and {len(adjacency) - 5} more DMAs")
+        spacer()
+
     except ImportError:
-        console.print(
-            "[red]GeoPandas is required for polygon-based adjacency.[/red]\n"
-            "Install with: pip install 'incrementality[geo]'"
-        )
+        fail("GeoPandas is required for polygon-based adjacency.")
+        console.print("    [muted]Install with:[/muted] [accent]pip install 'incrementality[geo]'[/accent]")
+        spacer()
     except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
+        fail(str(e))
+        spacer()
 
 
 @boundaries.command("centroid")
@@ -591,44 +664,37 @@ def boundaries_compute(
 @click.option("--output-dir", type=click.Path(), default="./data",
               help="Directory to save computed adjacency")
 def boundaries_centroid(max_distance: float, output_dir: str) -> None:
-    """Compute DMA adjacency from centroid distances (no GeoJSON needed).
-
-    Uses approximate centroid locations for all 210 DMAs and considers
-    DMAs within the specified distance as adjacent. This is a reasonable
-    fallback when polygon boundary data is not available.
-    """
+    """Compute DMA adjacency from centroid distances (no GeoJSON needed)."""
     import json as json_mod
     from incrementality.design.dma_boundaries import compute_adjacency_from_centroids
 
-    console.print(Panel(
-        f"Max distance: {max_distance} miles\n"
-        f"Output: {output_dir}/dma_adjacency.json",
-        title="Computing Centroid-Based DMA Adjacency",
-        border_style="blue",
-    ))
+    banner()
+    section("Compute Centroid Adjacency")
+    kv("Max distance", f"{max_distance} miles")
+    kv("Output", f"{output_dir}/dma_adjacency.json")
+    spacer()
 
-    adjacency = compute_adjacency_from_centroids(max_distance_miles=max_distance)
+    with step("Computing adjacency from DMA centroids"):
+        adjacency = compute_adjacency_from_centroids(max_distance_miles=max_distance)
+
     n_edges = sum(len(v) for v in adjacency.values()) // 2
 
-    # Save
     out_path = Path(output_dir) / "dma_adjacency.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         json_mod.dump(adjacency, f, indent=2)
 
-    console.print(
-        f"\n[green]Computed adjacency for {len(adjacency)} DMAs "
-        f"with {n_edges} border pairs[/green]"
-    )
-    console.print(f"Saved to: {out_path}")
+    done(f"Computed adjacency for {len(adjacency)} DMAs with {n_edges} border pairs")
+    done(f"Saved to [accent]{out_path}[/accent]")
+    spacer()
 
     # Stats
     neighbor_counts = [len(v) for v in adjacency.values()]
-    console.print(
-        f"\nAvg neighbors per DMA: {np.mean(neighbor_counts):.1f}\n"
-        f"Max neighbors: {max(neighbor_counts)}\n"
-        f"DMAs with no neighbors: {sum(1 for c in neighbor_counts if c == 0)}"
-    )
+    section("Statistics")
+    kv("Avg neighbors / DMA", f"{np.mean(neighbor_counts):.1f}")
+    kv("Max neighbors", str(max(neighbor_counts)))
+    kv("Isolated DMAs", str(sum(1 for c in neighbor_counts if c == 0)))
+    spacer()
 
 
 if __name__ == "__main__":

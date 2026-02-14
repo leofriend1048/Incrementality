@@ -1,6 +1,6 @@
-"""Incrementality test reporting.
+"""LIFT — Incrementality test reporting.
 
-Generates comprehensive reports from test results including:
+Generates comprehensive branded reports from test results including:
 - Test design summary
 - Incrementality results with confidence intervals
 - iROAS by platform (Shopify, Amazon, cross-platform)
@@ -17,11 +17,6 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-
 from incrementality.models import (
     IncrementalityResult,
     IncrementalROAS,
@@ -30,9 +25,23 @@ from incrementality.models import (
     TestReport,
     TestScope,
 )
+from incrementality.ui import (
+    branded_table,
+    console,
+    iroas_value,
+    kv,
+    lift_value,
+    money,
+    pass_fail,
+    quality_badge,
+    score_bar,
+    section,
+    sig_badge,
+    spacer,
+    trust_meter,
+)
 
 logger = logging.getLogger(__name__)
-console = Console()
 
 
 def generate_report(
@@ -175,286 +184,198 @@ def _generate_recommendations(
     return recs
 
 
+# ── Report Printer ────────────────────────────────────────────────────────────
+
 def print_report(report: TestReport) -> None:
-    """Print a formatted report to the terminal."""
+    """Print a branded LIFT report to the terminal."""
 
-    # Header
-    console.print()
-    console.print(Panel(
-        f"[bold]{report.test_name}[/bold]\n"
-        f"Test ID: {report.test_id}",
-        title="Incrementality Test Report",
-        border_style="blue",
-    ))
-
-    # Design summary
-    design_table = Table(title="Test Design", show_header=False, border_style="dim")
-    design_table.add_column("Parameter", style="bold")
-    design_table.add_column("Value")
-    design_table.add_row("Ad Channel", report.ad_channel.value.title())
-    design_table.add_row("Test Scope", report.test_scope.value.replace("_", " ").title())
-    design_table.add_row("Measurement", report.measurement_scope.value.replace("_", " ").title())
+    # ── Header ──
+    section(f"Incrementality Report: {report.test_name}")
+    kv("Test ID", f"[accent]{report.test_id}[/accent]")
+    kv("Ad Channel", f"[accent]{report.ad_channel.value.title()}[/accent]")
+    kv("Test Scope", report.test_scope.value.replace("_", " ").title())
+    kv("Measurement", report.measurement_scope.value.replace("_", " ").title())
     if report.campaign_ids:
-        design_table.add_row("Campaigns", ", ".join(report.campaign_ids))
-    design_table.add_row("Duration", f"{report.duration_weeks} weeks")
-    design_table.add_row("Test Period", f"{report.test_start} to {report.test_end}")
-    design_table.add_row("Treatment DMAs", str(report.num_treatment_dmas))
-    design_table.add_row("Holdout DMAs", str(report.num_holdout_dmas))
-    console.print(design_table)
-    console.print()
+        kv("Campaigns", ", ".join(report.campaign_ids))
+    kv("Duration", f"{report.duration_weeks} weeks")
+    kv("Test Period", f"{report.test_start} → {report.test_end}")
+    kv("Treatment DMAs", str(report.num_treatment_dmas))
+    kv("Holdout DMAs", str(report.num_holdout_dmas))
 
-    # Incrementality results
+    # ── Primary Results ──
     inc = report.incrementality
-    result_style = "green" if inc.is_significant and inc.relative_lift > 0 else "red"
-    sig_label = "SIGNIFICANT" if inc.is_significant else "NOT SIGNIFICANT"
+    section("Incrementality Results")
 
-    results_table = Table(title="Incrementality Results", border_style="dim")
-    results_table.add_column("Metric", style="bold")
-    results_table.add_column("Value", justify="right")
-    results_table.add_column("CI (95%)", justify="right")
-    results_table.add_row(
-        "Incremental Lift",
-        f"[{result_style}]{inc.relative_lift:+.1%}[/{result_style}]",
-        f"[{inc.lift_lower_ci:+.1%}, {inc.lift_upper_ci:+.1%}]",
-    )
-    results_table.add_row(
-        "Statistical Significance",
-        f"[{result_style}]{sig_label}[/{result_style}]",
-        f"p = {inc.p_value:.4f}",
-    )
-    results_table.add_row("Method", inc.method.replace("_", " ").title(), "")
-    results_table.add_row("Effect Size (Cohen's d)", f"{inc.cohen_d:.3f}", "")
+    kv("Incremental Lift", lift_value(
+        inc.relative_lift, inc.lift_lower_ci, inc.lift_upper_ci, inc.is_significant,
+    ))
+    kv("Significance", sig_badge(inc.is_significant, inc.p_value))
+    kv("Method", f"[muted]{inc.method.replace('_', ' ').title()}[/muted]")
+    kv("Effect Size (d)", f"{inc.cohen_d:.3f}")
     if inc.lift_likelihood > 0:
-        results_table.add_row(
-            "P(true lift > 0)",
-            f"{inc.lift_likelihood:.1%}",
-            "",
-        )
-    console.print(results_table)
-    console.print()
+        ll_bar = score_bar(inc.lift_likelihood * 100, 100, 15)
+        kv("P(true lift > 0)", f"{ll_bar}  {inc.lift_likelihood:.1%}")
 
-    # Ensemble details
+    # ── Ensemble Details ──
     if report.estimator_results and len(report.estimator_results) > 1:
         _print_ensemble_details(report)
 
-    # iROAS
+    # ── iROAS ──
     iroas = report.iroas
-    iroas_style = "green" if iroas.iroas >= 1.0 else "red"
+    section("Incremental ROAS")
 
-    iroas_table = Table(title="Incremental ROAS", border_style="dim")
-    iroas_table.add_column("Metric", style="bold")
-    iroas_table.add_column("Value", justify="right")
-    iroas_table.add_row(
-        "Total Incremental Revenue",
-        f"${iroas.incremental_revenue:,.2f}",
-    )
-    iroas_table.add_row(
-        "Total Ad Spend (Treatment)",
-        f"${iroas.total_ad_spend:,.2f}",
-    )
-    iroas_table.add_row(
-        "iROAS",
-        f"[{iroas_style}]{iroas.iroas:.2f}x[/{iroas_style}]",
-    )
-    iroas_table.add_row(
-        "iROAS 95% CI",
-        f"[{iroas.iroas_lower_ci:.2f}x, {iroas.iroas_upper_ci:.2f}x]",
-    )
+    kv("Incremental Revenue", money(iroas.incremental_revenue))
+    kv("Total Ad Spend", money(iroas.total_ad_spend))
+    kv("iROAS", iroas_value(iroas.iroas))
+    kv("iROAS 95% CI", f"[muted][{iroas.iroas_lower_ci:.2f}x, {iroas.iroas_upper_ci:.2f}x][/muted]")
 
     if iroas.shopify_incremental_revenue > 0 or iroas.amazon_incremental_revenue > 0:
-        iroas_table.add_row("", "")
-        iroas_table.add_row(
-            "Shopify Incremental Revenue",
-            f"${iroas.shopify_incremental_revenue:,.2f}",
-        )
-        iroas_table.add_row("Shopify iROAS", f"{iroas.shopify_iroas:.2f}x")
-        iroas_table.add_row(
-            "Amazon Incremental Revenue",
-            f"${iroas.amazon_incremental_revenue:,.2f}",
-        )
-        iroas_table.add_row("Amazon iROAS", f"{iroas.amazon_iroas:.2f}x")
+        spacer()
+        kv("Shopify Incremental", money(iroas.shopify_incremental_revenue))
+        kv("Shopify iROAS", f"{iroas.shopify_iroas:.2f}x")
+        kv("Amazon Incremental", money(iroas.amazon_incremental_revenue))
+        kv("Amazon iROAS", f"{iroas.amazon_iroas:.2f}x")
 
-    console.print(iroas_table)
-    console.print()
+    # ── Revenue Summary ──
+    section("Revenue Summary")
 
-    # Revenue summary
-    rev_table = Table(title="Revenue Summary", border_style="dim")
-    rev_table.add_column("Metric", style="bold")
-    rev_table.add_column("Treatment", justify="right")
-    rev_table.add_column("Holdout", justify="right")
-    rev_table.add_row(
+    table = branded_table("", show_header=True)
+    table.add_column("Metric", style="label")
+    table.add_column("Treatment", justify="right")
+    table.add_column("Holdout", justify="right")
+    table.add_row(
         "Total Revenue",
-        f"${report.treatment_total_revenue:,.2f}",
-        f"${report.holdout_total_revenue:,.2f}",
+        money(report.treatment_total_revenue),
+        money(report.holdout_total_revenue),
     )
-    rev_table.add_row(
-        "Avg Daily Rev / DMA",
-        f"${report.treatment_avg_daily_revenue:,.2f}",
-        f"${report.holdout_avg_daily_revenue:,.2f}",
+    table.add_row(
+        "Avg Daily / DMA",
+        money(report.treatment_avg_daily_revenue),
+        money(report.holdout_avg_daily_revenue),
     )
-    rev_table.add_row(
-        "Organic Baseline (est.)",
-        f"${report.organic_baseline_revenue:,.2f}",
+    table.add_row(
+        "Organic Baseline",
+        money(report.organic_baseline_revenue),
         "",
     )
-    console.print(rev_table)
-    console.print()
+    console.print(table)
 
-    # Cross-platform incrementality
+    # ── Cross-Platform ──
     if report.shopify_incrementality or report.amazon_incrementality:
-        cross_table = Table(
-            title="Cross-Platform Incrementality", border_style="dim"
-        )
-        cross_table.add_column("Platform", style="bold")
-        cross_table.add_column("Lift", justify="right")
-        cross_table.add_column("Significant?", justify="right")
-        cross_table.add_column("p-value", justify="right")
+        section("Cross-Platform Incrementality")
+
+        table = branded_table("", show_header=True)
+        table.add_column("Platform", style="label")
+        table.add_column("Lift", justify="right")
+        table.add_column("Status", justify="center")
+        table.add_column("p-value", justify="right")
 
         if report.shopify_incrementality:
             si = report.shopify_incrementality
-            cross_table.add_row(
+            table.add_row(
                 "Shopify",
                 f"{si.relative_lift:+.1%}",
-                "Yes" if si.is_significant else "No",
+                pass_fail(si.is_significant),
                 f"{si.p_value:.4f}",
             )
         if report.amazon_incrementality:
             ai = report.amazon_incrementality
-            cross_table.add_row(
+            table.add_row(
                 "Amazon",
                 f"{ai.relative_lift:+.1%}",
-                "Yes" if ai.is_significant else "No",
+                pass_fail(ai.is_significant),
                 f"{ai.p_value:.4f}",
             )
-        console.print(cross_table)
-        console.print()
+        console.print(table)
 
-    # Validation report
+    # ── Validation ──
     if report.validation:
         _print_validation(report)
 
-    # Recommendations
-    console.print(Panel(
-        "\n".join(f"  {i+1}. {rec}" for i, rec in enumerate(report.recommendations)),
-        title="Recommendations",
-        border_style="yellow",
-    ))
-    console.print()
+    # ── Recommendations ──
+    section("Recommendations")
+    for i, rec in enumerate(report.recommendations, 1):
+        console.print(f"    [accent]{i}.[/accent]  {rec}")
+        spacer()
 
 
 def _print_ensemble_details(report: TestReport) -> None:
-    """Print ensemble model details."""
-    ensemble_table = Table(title="Ensemble Model Details", border_style="dim")
-    ensemble_table.add_column("Estimator", style="bold")
-    ensemble_table.add_column("Weight", justify="right")
-    ensemble_table.add_column("Lift", justify="right")
-    ensemble_table.add_column("p-value", justify="right")
-    ensemble_table.add_column("Significant?", justify="right")
-    ensemble_table.add_column("L2", justify="right")
-    ensemble_table.add_column("R\u00b2", justify="right")
+    """Print ensemble model breakdown."""
+    section("Model Ensemble")
+
+    table = branded_table("", show_header=True)
+    table.add_column("Model", style="accent")
+    table.add_column("Weight", justify="right")
+    table.add_column("Lift", justify="right")
+    table.add_column("p-value", justify="right")
+    table.add_column("Status", justify="center")
+    table.add_column("L2", justify="right", style="muted")
+    table.add_column("R\u00b2", justify="right", style="muted")
 
     for name, result in report.estimator_results.items():
         weight = report.estimator_weights.get(name, 0)
-        sig_style = "green" if result.is_significant else "red"
-        ensemble_table.add_row(
+
+        weight_bar = score_bar(weight * 100, 100, 8)
+
+        table.add_row(
             name.upper(),
-            f"{weight:.0%}",
+            f"{weight_bar} {weight:.0%}",
             f"{result.relative_lift:+.1%}",
             f"{result.p_value:.4f}",
-            f"[{sig_style}]{'Yes' if result.is_significant else 'No'}[/{sig_style}]",
-            f"{result.l2_imbalance:.4f}" if result.l2_imbalance > 0 else "--",
-            f"{result.pre_period_r_squared:.3f}" if result.pre_period_r_squared > 0 else "--",
+            pass_fail(result.is_significant),
+            f"{result.l2_imbalance:.4f}" if result.l2_imbalance > 0 else "—",
+            f"{result.pre_period_r_squared:.3f}" if result.pre_period_r_squared > 0 else "—",
         )
 
-    console.print(ensemble_table)
-    console.print()
+    console.print(table)
 
 
 def _print_validation(report: TestReport) -> None:
-    """Print validation results with trust score."""
+    """Print validation results with visual trust score."""
     v = report.validation
 
-    # Trust score header
-    if v.is_trustworthy:
-        trust_style = "green"
-        trust_label = "TRUSTWORTHY"
-    else:
-        trust_style = "red"
-        trust_label = "NOT TRUSTWORTHY"
+    section("Validation & Trust Score")
 
-    val_table = Table(title="Validation Results", border_style="dim")
-    val_table.add_column("Check", style="bold")
-    val_table.add_column("Result", justify="right")
-    val_table.add_column("Status", justify="right")
+    # Trust score meter
+    trust_meter(v.trust_score)
+    spacer()
 
-    # Trust score
-    val_table.add_row(
-        "Trust Score",
-        f"[{trust_style}]{v.trust_score:.0f}/100[/{trust_style}]",
-        f"[{trust_style}]{trust_label}[/{trust_style}]",
-    )
+    # Individual checks
+    kv("AA Test (pre-period)",
+       f"p = {v.aa_test_p_value:.4f}  {pass_fail(v.aa_test_passed)}")
 
-    # AA test
-    aa_style = "green" if v.aa_test_passed else "red"
-    val_table.add_row(
-        "AA Test (pre-period)",
-        f"p = {v.aa_test_p_value:.4f}",
-        f"[{aa_style}]{'PASS' if v.aa_test_passed else 'FAIL'}[/{aa_style}]",
-    )
+    kv("Pre-period L2",
+       f"{v.l2_imbalance:.4f}  {quality_badge(v.l2_imbalance, 0.05, 0.10, reverse=True)}")
 
-    # Pre-period fit
-    l2_style = "green" if v.l2_imbalance < 0.05 else ("yellow" if v.l2_imbalance < 0.10 else "red")
-    val_table.add_row(
-        "Pre-period L2 Imbalance",
-        f"{v.l2_imbalance:.4f}",
-        f"[{l2_style}]{'Good' if v.l2_imbalance < 0.05 else ('OK' if v.l2_imbalance < 0.10 else 'Poor')}[/{l2_style}]",
-    )
+    kv("Pre-period R\u00b2",
+       f"{v.pre_period_r_squared:.3f}  {quality_badge(v.pre_period_r_squared, 0.90, 0.80)}")
 
-    r2_style = "green" if v.pre_period_r_squared > 0.90 else ("yellow" if v.pre_period_r_squared > 0.80 else "red")
-    val_table.add_row(
-        "Pre-period R\u00b2",
-        f"{v.pre_period_r_squared:.3f}",
-        f"[{r2_style}]{'Good' if v.pre_period_r_squared > 0.90 else ('OK' if v.pre_period_r_squared > 0.80 else 'Poor')}[/{r2_style}]",
-    )
+    kv("Placebo Tests",
+       f"{v.num_placebo_tests} tests, {v.false_positive_rate:.0%} FPR  "
+       f"{quality_badge(v.false_positive_rate, 0.10, 0.15, reverse=True)}")
 
-    # Placebo tests
-    fpr_style = "green" if v.false_positive_rate < 0.10 else ("yellow" if v.false_positive_rate < 0.15 else "red")
-    val_table.add_row(
-        "Placebo Tests",
-        f"{v.num_placebo_tests} tests, {v.false_positive_rate:.0%} FPR",
-        f"[{fpr_style}]{'Good' if v.false_positive_rate < 0.10 else ('Elevated' if v.false_positive_rate < 0.15 else 'High')}[/{fpr_style}]",
-    )
-
-    # Estimator agreement
-    agree_style = "green" if v.estimator_agreement > 0.7 else ("yellow" if v.estimator_agreement > 0.5 else "red")
-    val_table.add_row(
-        "Estimator Agreement",
-        f"{v.estimator_agreement:.0%}",
-        f"[{agree_style}]{'Good' if v.estimator_agreement > 0.7 else ('Partial' if v.estimator_agreement > 0.5 else 'Disagree')}[/{agree_style}]",
-    )
-
-    console.print(val_table)
+    kv("Estimator Agreement",
+       f"{v.estimator_agreement:.0%}  "
+       f"{quality_badge(v.estimator_agreement, 0.70, 0.50)}")
 
     # Blockers
     if v.blockers:
-        blocker_text = "\n".join(f"  [bold red]X[/bold red] {b}" for b in v.blockers)
-        console.print(Panel(
-            blocker_text,
-            title="BLOCKERS (Hard Stops)",
-            border_style="red",
-        ))
+        spacer()
+        console.print("    [bad]BLOCKERS:[/bad]")
+        for b in v.blockers:
+            console.print(f"    [bad]✗[/bad]  {b}")
 
     # Warnings
     if v.warnings:
-        warning_text = "\n".join(f"  [yellow]![/yellow] {w}" for w in v.warnings)
-        console.print(Panel(
-            warning_text,
-            title="Warnings",
-            border_style="yellow",
-        ))
+        spacer()
+        console.print("    [warn]WARNINGS:[/warn]")
+        for w in v.warnings:
+            console.print(f"    [warn]⚠[/warn]  {w}")
 
-    console.print()
+    spacer()
 
+
+# ── File Output ───────────────────────────────────────────────────────────────
 
 def save_report_json(report: TestReport, output_dir: str | Path) -> Path:
     """Save report as JSON."""
