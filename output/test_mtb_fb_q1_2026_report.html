@@ -4,135 +4,211 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LIFT Report &mdash; Michael Todd Beauty — Facebook Incrementality Q1</title>
-    <style>:root {
-    --brand: #06b6d4;
-    --brand-dark: #0891b2;
-    --brand-glow: rgba(6, 182, 212, 0.12);
-    --green: #22c55e;
-    --green-dim: rgba(34, 197, 94, 0.15);
-    --red: #ef4444;
-    --red-dim: rgba(239, 68, 68, 0.12);
-    --yellow: #eab308;
-    --yellow-dim: rgba(234, 179, 8, 0.12);
-    --bg: #0f172a;
-    --surface: #1e293b;
-    --surface-2: #334155;
-    --text: #f1f5f9;
-    --text-muted: #94a3b8;
-    --border: #475569;
+    <style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+    --brand: #0251F3;
+    --brand-light: #84CBFF;
+    --brand-glow: rgba(2, 81, 243, 0.10);
+    --brand-border: rgba(2, 81, 243, 0.25);
+    --green: #34D399;
+    --green-dim: rgba(52, 211, 153, 0.12);
+    --red: #F87171;
+    --red-dim: rgba(248, 113, 113, 0.10);
+    --yellow: #FBBF24;
+    --yellow-dim: rgba(251, 191, 36, 0.10);
+    --bg: #0B1120;
+    --surface: #111827;
+    --surface-2: #1C2B4A;
+    --surface-3: #243A63;
+    --text: #E8EDF5;
+    --text-muted: #7B93B8;
+    --border: #1E3054;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background: var(--bg);
     color: var(--text);
     line-height: 1.6;
-    padding: 48px 40px;
-    max-width: 920px;
+    padding: 0;
+    max-width: 960px;
     margin: 0 auto;
+    -webkit-font-smoothing: antialiased;
 }
 
 /* ── Header ── */
 .header {
-    border-bottom: 2px solid var(--brand);
-    padding-bottom: 28px;
-    margin-bottom: 36px;
+    background: linear-gradient(135deg, #0B1120 0%, #111D35 50%, #0B1120 100%);
+    padding: 48px 48px 40px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+}
+.header::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--brand), var(--brand-light), var(--brand));
 }
 .brand {
-    font-size: 32px;
+    font-size: 28px;
     font-weight: 800;
-    color: var(--brand);
-    letter-spacing: 3px;
+    letter-spacing: 4px;
+    background: linear-gradient(135deg, var(--brand), var(--brand-light));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
-.brand .mark { margin-right: 10px; }
 .subtitle {
     color: var(--text-muted);
-    font-size: 13px;
-    margin-top: 2px;
-    letter-spacing: 0.5px;
+    font-size: 12px;
+    font-weight: 500;
+    margin-top: 4px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
 }
 .test-name {
-    font-size: 22px;
-    font-weight: 600;
-    margin-top: 20px;
+    font-size: 24px;
+    font-weight: 700;
+    margin-top: 24px;
     color: var(--text);
+    line-height: 1.3;
 }
-.meta {
+.meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+}
+.meta-tag {
+    display: inline-flex;
+    align-items: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 500;
     color: var(--text-muted);
-    font-size: 13px;
-    margin-top: 4px;
+}
+.meta-tag .tag-value {
+    color: var(--text);
+    margin-left: 4px;
 }
 
+/* ── Content ── */
+.content { padding: 40px 48px 48px; }
+
 /* ── Sections ── */
-.section { margin-bottom: 36px; }
+.section { margin-bottom: 40px; }
 .section-title {
-    font-size: 13px;
+    font-size: 11px;
     font-weight: 700;
-    color: var(--brand);
+    color: var(--brand-light);
     text-transform: uppercase;
-    letter-spacing: 1.5px;
-    border-bottom: 1px solid var(--surface-2);
-    padding-bottom: 10px;
+    letter-spacing: 2px;
     margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border), transparent);
 }
 
 /* ── Key Takeaway ── */
 .takeaway {
-    background: var(--brand-glow);
-    border: 1px solid rgba(6, 182, 212, 0.25);
+    background: linear-gradient(135deg, rgba(2, 81, 243, 0.08), rgba(132, 203, 255, 0.04));
+    border: 1px solid var(--brand-border);
     border-radius: 12px;
-    padding: 24px 28px;
-    margin-bottom: 36px;
-    font-size: 16px;
-    line-height: 1.7;
+    padding: 28px 32px;
+    margin-bottom: 40px;
+    position: relative;
 }
-.takeaway .takeaway-label {
-    font-size: 11px;
+.takeaway::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 4px;
+    height: 100%;
+    background: linear-gradient(180deg, var(--brand), var(--brand-light));
+    border-radius: 12px 0 0 12px;
+}
+.takeaway-label {
+    font-size: 10px;
     font-weight: 700;
-    color: var(--brand);
+    color: var(--brand-light);
     text-transform: uppercase;
-    letter-spacing: 1.5px;
-    margin-bottom: 8px;
+    letter-spacing: 2px;
+    margin-bottom: 10px;
+}
+.takeaway p {
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--text-muted);
 }
 .takeaway strong { color: var(--text); }
-.takeaway .highlight { color: var(--green); font-weight: 700; }
-.takeaway .highlight-brand { color: var(--brand); font-weight: 700; }
+.takeaway .hl { color: var(--green); font-weight: 700; }
+.takeaway .hl-brand { color: var(--brand-light); font-weight: 700; }
 
 /* ── Metric Cards ── */
 .metric-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 16px;
-    margin-bottom: 8px;
+    margin-bottom: 16px;
+}
+.metric-grid.three-col {
+    grid-template-columns: repeat(3, 1fr);
 }
 .metric-card {
     background: var(--surface);
-    border-radius: 10px;
-    padding: 22px 24px;
-    border-left: 3px solid var(--brand);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
     position: relative;
+    overflow: hidden;
 }
-.metric-card.green { border-left-color: var(--green); }
-.metric-card.yellow { border-left-color: var(--yellow); }
-.metric-card.red { border-left-color: var(--red); }
+.metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--brand);
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+.metric-card.green::before { background: var(--green); opacity: 1; }
+.metric-card.yellow::before { background: var(--yellow); opacity: 1; }
+.metric-card.red::before { background: var(--red); opacity: 1; }
+.metric-card.brand::before { background: linear-gradient(90deg, var(--brand), var(--brand-light)); opacity: 1; }
 .metric-label {
     font-size: 11px;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 6px;
+    letter-spacing: 0.8px;
+    font-weight: 600;
+    margin-bottom: 8px;
 }
 .metric-value {
-    font-size: 32px;
+    font-size: 36px;
     font-weight: 800;
-    line-height: 1.2;
+    line-height: 1.1;
+    letter-spacing: -0.5px;
 }
+.metric-value.sm { font-size: 26px; }
 .metric-sub {
     font-size: 12px;
     color: var(--text-muted);
-    margin-top: 6px;
+    margin-top: 8px;
+    font-weight: 500;
 }
 .positive { color: var(--green); }
 .negative { color: var(--red); }
@@ -141,30 +217,32 @@ body {
 /* ── CI Bar ── */
 .ci-container {
     background: var(--surface);
-    border-radius: 10px;
-    padding: 20px 24px;
-    margin-top: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 16px;
 }
 .ci-label {
     font-size: 11px;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 12px;
+    letter-spacing: 0.8px;
+    font-weight: 600;
+    margin-bottom: 16px;
 }
 .ci-bar-track {
     position: relative;
-    height: 32px;
+    height: 36px;
     background: var(--surface-2);
-    border-radius: 6px;
+    border-radius: 8px;
     overflow: visible;
-    margin: 0 0 8px 0;
+    margin: 0 0 10px 0;
 }
 .ci-bar-range {
     position: absolute;
     height: 100%;
-    border-radius: 6px;
-    opacity: 0.35;
+    border-radius: 8px;
+    opacity: 0.25;
 }
 .ci-bar-range.positive { background: var(--green); }
 .ci-bar-range.negative { background: var(--red); }
@@ -173,7 +251,7 @@ body {
     position: absolute;
     top: 50%;
     width: 4px;
-    height: 24px;
+    height: 26px;
     border-radius: 2px;
     transform: translateY(-50%) translateX(-50%);
     background: var(--text);
@@ -184,56 +262,58 @@ body {
     height: 100%;
     width: 1px;
     background: var(--text-muted);
-    opacity: 0.5;
+    opacity: 0.4;
 }
 .ci-ticks {
     display: flex;
     justify-content: space-between;
     font-size: 11px;
     color: var(--text-muted);
-    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-weight: 500;
 }
 
 /* ── Likelihood Ring ── */
 .likelihood-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
     gap: 16px;
-    margin-top: 16px;
 }
 .likelihood-card {
-    flex: 1;
     background: var(--surface);
-    border-radius: 10px;
-    padding: 20px 24px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
     display: flex;
     align-items: center;
     gap: 20px;
 }
 .ring-container {
     position: relative;
-    width: 64px;
-    height: 64px;
+    width: 68px;
+    height: 68px;
     flex-shrink: 0;
 }
 .ring-container svg {
     transform: rotate(-90deg);
-    width: 64px;
-    height: 64px;
+    width: 68px;
+    height: 68px;
 }
 .ring-container .ring-bg {
     fill: none;
     stroke: var(--surface-2);
-    stroke-width: 5;
+    stroke-width: 4.5;
 }
 .ring-container .ring-fill {
     fill: none;
-    stroke-width: 5;
+    stroke-width: 4.5;
     stroke-linecap: round;
 }
 .ring-container .ring-fill.green { stroke: var(--green); }
 .ring-container .ring-fill.yellow { stroke: var(--yellow); }
+.ring-container .ring-fill.brand { stroke: var(--brand); }
 .ring-label {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 800;
     position: absolute;
     top: 50%;
@@ -245,11 +325,12 @@ body {
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    font-weight: 600;
 }
 .likelihood-text .ll-value {
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 700;
-    margin-top: 2px;
+    margin-top: 4px;
 }
 .likelihood-text .ll-detail {
     font-size: 12px;
@@ -260,69 +341,74 @@ body {
 /* ── Tables ── */
 table {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     background: var(--surface);
-    border-radius: 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
     overflow: hidden;
 }
 th {
     background: var(--surface-2);
-    color: var(--brand);
-    font-size: 11px;
+    color: var(--brand-light);
+    font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: 12px 16px;
+    letter-spacing: 1px;
+    padding: 14px 18px;
     text-align: left;
     font-weight: 700;
 }
 td {
-    padding: 12px 16px;
-    border-top: 1px solid var(--surface-2);
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
     font-size: 14px;
+    font-weight: 500;
 }
+tr:first-child td { border-top: none; }
 
 /* ── Weight bars ── */
 .weight-bar-bg {
     display: inline-block;
     width: 60px;
-    height: 8px;
-    background: var(--surface-2);
-    border-radius: 4px;
+    height: 6px;
+    background: var(--surface-3);
+    border-radius: 3px;
     overflow: hidden;
     vertical-align: middle;
     margin-right: 8px;
 }
 .weight-bar-fill {
     height: 100%;
-    border-radius: 4px;
-    background: var(--brand);
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--brand), var(--brand-light));
 }
 
 /* ── Trust Meter ── */
 .trust-meter {
     background: var(--surface);
-    border-radius: 10px;
-    padding: 24px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
     margin-bottom: 16px;
 }
 .trust-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
+    margin-bottom: 16px;
 }
 .trust-score-num {
-    font-size: 28px;
+    font-size: 32px;
     font-weight: 800;
 }
-.trust-score-num span { font-size: 14px; color: var(--text-muted); font-weight: 400; }
+.trust-score-num span { font-size: 15px; color: var(--text-muted); font-weight: 500; }
 .trust-verdict {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 1px;
-    padding: 4px 12px;
-    border-radius: 4px;
+    letter-spacing: 1.5px;
+    padding: 6px 14px;
+    border-radius: 6px;
 }
 .trust-verdict.excellent { background: var(--green-dim); color: var(--green); }
 .trust-verdict.marginal { background: var(--yellow-dim); color: var(--yellow); }
@@ -330,160 +416,211 @@ td {
 .trust-bar-bg {
     background: var(--surface-2);
     border-radius: 4px;
-    height: 10px;
+    height: 8px;
     overflow: hidden;
 }
 .trust-bar-fill {
     height: 100%;
     border-radius: 4px;
 }
-.trust-bar-fill.excellent { background: var(--green); }
-.trust-bar-fill.marginal { background: var(--yellow); }
-.trust-bar-fill.bad { background: var(--red); }
+.trust-bar-fill.excellent { background: linear-gradient(90deg, var(--green), #6EE7B7); }
+.trust-bar-fill.marginal { background: linear-gradient(90deg, var(--yellow), #FDE68A); }
+.trust-bar-fill.bad { background: linear-gradient(90deg, var(--red), #FCA5A5); }
 
 /* ── Validation Checks ── */
 .checks {
     background: var(--surface);
-    border-radius: 10px;
-    padding: 16px 20px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px 20px;
 }
 .check-item {
     display: flex;
     align-items: center;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--surface-2);
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
 }
 .check-item:last-child { border-bottom: none; }
 .check-icon {
     width: 28px;
-    font-size: 14px;
+    font-size: 13px;
     flex-shrink: 0;
+    font-weight: 700;
 }
 .check-icon.pass { color: var(--green); }
 .check-icon.fail { color: var(--red); }
 .check-icon.info { color: var(--text-muted); }
-.check-name { flex: 1; font-size: 14px; }
-.check-value {
+.check-name {
+    flex: 1;
     font-size: 13px;
+    font-weight: 500;
+}
+.check-value {
+    font-size: 12px;
     color: var(--text-muted);
-    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-weight: 500;
 }
 .check-badge {
-    font-size: 11px;
-    font-weight: 600;
-    padding: 2px 8px;
-    border-radius: 3px;
-    margin-left: 8px;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-left: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 .check-badge.good { background: var(--green-dim); color: var(--green); }
 .check-badge.ok { background: var(--yellow-dim); color: var(--yellow); }
 .check-badge.poor { background: var(--red-dim); color: var(--red); }
 
 /* ── Recommendations ── */
+.rec-list { display: flex; flex-direction: column; gap: 12px; }
 .rec-item {
     background: var(--surface);
-    border-radius: 10px;
-    padding: 18px 24px;
-    margin-bottom: 12px;
-    border-left: 3px solid var(--brand);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
     font-size: 14px;
     line-height: 1.7;
+    position: relative;
+    padding-left: 56px;
 }
 .rec-number {
-    color: var(--brand);
+    position: absolute;
+    left: 20px;
+    top: 20px;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: var(--brand-glow);
+    border: 1px solid var(--brand-border);
+    color: var(--brand-light);
     font-weight: 800;
-    margin-right: 8px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 /* ── Alerts ── */
 .alert {
-    border-radius: 8px;
-    padding: 14px 18px;
+    border-radius: 10px;
+    padding: 16px 20px;
     margin-top: 12px;
     font-size: 13px;
     line-height: 1.6;
+    font-weight: 500;
+    border: 1px solid;
 }
 .alert.blocker {
     background: var(--red-dim);
-    border-left: 3px solid var(--red);
-    color: #fca5a5;
+    border-color: rgba(248, 113, 113, 0.25);
+    color: #FCA5A5;
 }
 .alert.warning {
     background: var(--yellow-dim);
-    border-left: 3px solid var(--yellow);
-    color: #fde047;
+    border-color: rgba(251, 191, 36, 0.25);
+    color: #FDE68A;
 }
 
 /* ── Methodology ── */
 .method-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+    gap: 16px;
 }
 .method-card {
     background: var(--surface);
-    border-radius: 10px;
-    padding: 18px 20px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
 }
 .method-card .method-name {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 700;
-    color: var(--brand);
-    margin-bottom: 6px;
+    color: var(--brand-light);
+    margin-bottom: 8px;
 }
 .method-card .method-desc {
     font-size: 12px;
     color: var(--text-muted);
-    line-height: 1.5;
+    line-height: 1.6;
 }
 
 /* ── Footer ── */
 .footer {
-    margin-top: 48px;
-    padding-top: 20px;
-    border-top: 1px solid var(--surface-2);
+    padding: 24px 48px;
+    border-top: 1px solid var(--border);
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: 11px;
     text-align: center;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
+.footer strong {
+    background: linear-gradient(135deg, var(--brand), var(--brand-light));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* ── Divider ── */
+.divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+    margin: 40px 0;
 }
 
 @media print {
-    body { background: #fff; color: #1e293b; padding: 20px; }
+    body { background: #fff; color: #1a1a2e; padding: 0; }
+    .header { background: #f8fafc; }
+    .header::before { background: var(--brand); }
+    .brand {
+        -webkit-text-fill-color: var(--brand);
+        color: var(--brand);
+    }
     .metric-card, table, .trust-meter, .checks, .rec-item,
     .alert, .takeaway, .ci-container, .likelihood-card, .method-card {
         background: #f8fafc;
+        border-color: #e2e8f0;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
     }
     .ci-bar-track { background: #e2e8f0; }
     .section { page-break-inside: avoid; }
+    .footer strong {
+        -webkit-text-fill-color: var(--brand);
+        color: var(--brand);
+    }
 }
 </style>
 </head>
 <body>
 
     <div class="header">
-        <div class="brand"><span class="mark">&#9650;</span>LIFT</div>
+        <div class="brand">LIFT</div>
         <div class="subtitle">Geo Incrementality Platform</div>
         <div class="test-name">Michael Todd Beauty — Facebook Incrementality Q1</div>
-        <div class="meta">
-            Facebook &middot;
-            Channel &middot;
-            Shopify And Amazon &middot;
-            6 weeks &middot;
-            2026-01-06 &rarr; 2026-02-16
+        <div class="meta-row">
+            <span class="meta-tag">Channel<span class="tag-value">Facebook</span></span>
+            <span class="meta-tag">Scope<span class="tag-value">Channel</span></span>
+            <span class="meta-tag">Measurement<span class="tag-value">Shopify And Amazon</span></span>
+            <span class="meta-tag">Duration<span class="tag-value">6 weeks</span></span>
+            <span class="meta-tag">Period<span class="tag-value">2026-01-06 &rarr; 2026-02-16</span></span>
         </div>
-        <div class="meta">
-            Test ID: test_mtb_fb_q1_2026 &middot;
-            Treatment: 48 DMAs &middot;
-            Holdout: 16 DMAs
+        <div class="meta-row" style="margin-top:8px">
+            <span class="meta-tag">Test ID<span class="tag-value">test_mtb_fb_q1_2026</span></span>
+            <span class="meta-tag">Treatment<span class="tag-value">48 DMAs</span></span>
+            <span class="meta-tag">Holdout<span class="tag-value">16 DMAs</span></span>
         </div>
     </div>
     
+<div class="content">
 
     <div class="takeaway">
         <div class="takeaway-label">Key Takeaway</div>
-        <strong>Facebook ads are driving real, measurable growth.</strong> The test detected a statistically significant <span class='highlight'>+13.4%</span> incremental lift with an iROAS of <span class='highlight'>2.55x</span> &mdash; every $1 spent generated <span class='highlight'>$2.55</span> in incremental revenue.
+        <p><strong>Facebook ads are driving real, measurable growth.</strong> The test detected a statistically significant <span class='hl'>+13.4%</span> incremental lift with an iROAS of <span class='hl'>2.55x</span> &mdash; every $1 spent generated <span class='hl'>$2.55</span> in incremental revenue.</p>
     </div>
     
 
@@ -502,16 +639,35 @@ td {
             </div>
             <div class="metric-card green">
                 <div class="metric-label">Statistical Significance</div>
-                <div class="metric-value" style="font-size:24px">Significant</div>
-                <div class="metric-sub">p = 0.0012 &middot; Cohen's d = 0.412</div>
+                <div class="metric-value sm">Significant</div>
+                <div class="metric-sub">p = 0.0012 &middot; Cohen&rsquo;s d = 0.412</div>
             </div>
-            <div class="metric-card">
+            <div class="metric-card brand">
                 <div class="metric-label">Incremental Revenue</div>
-                <div class="metric-value" style="font-size:24px">$287,431.58</div>
+                <div class="metric-value sm">$287,431.58</div>
                 <div class="metric-sub">on $112,840.00 total ad spend</div>
             </div>
         </div>
     
+
+        <div class="metric-grid three-col" style="margin-top:0">
+            <div class="metric-card green">
+                <div class="metric-label">Incrementality Factor</div>
+                <div class="metric-value">1.20</div>
+                <div class="metric-sub">Highly Incremental &middot; 900 incr. / 750 attr.</div>
+            </div>
+            <div class="metric-card brand">
+                <div class="metric-label">Cost Per Incr. Acquisition</div>
+                <div class="metric-value sm">$125</div>
+                <div class="metric-sub">$112,840.00 / 900 conversions</div>
+            </div>
+            <div class="metric-card brand">
+                <div class="metric-label">Incremental Orders</div>
+                <div class="metric-value sm">900</div>
+                <div class="metric-sub">Platform reported: 750</div>
+            </div>
+        </div>
+        
 
         <div class="ci-container">
             <div class="ci-label">Lift 95% Confidence Interval</div>
@@ -528,13 +684,13 @@ td {
         </div>
     
 
-        <div class="likelihood-row">
+        <div class="likelihood-row" style="margin-top:16px">
             <div class="likelihood-card">
                 <div class="ring-container">
-                    <svg viewBox="0 0 64 64">
-                        <circle class="ring-bg" cx="32" cy="32" r="26"/>
-                        <circle class="ring-fill green" cx="32" cy="32" r="26"
-                            stroke-dasharray="162.4 1.0"/>
+                    <svg viewBox="0 0 68 68">
+                        <circle class="ring-bg" cx="34" cy="34" r="28"/>
+                        <circle class="ring-fill green" cx="34" cy="34" r="28"
+                            stroke-dasharray="174.9 1.1"/>
                     </svg>
                     <div class="ring-label">99%</div>
                 </div>
@@ -546,15 +702,15 @@ td {
             </div>
             <div class="likelihood-card">
                 <div class="ring-container">
-                    <svg viewBox="0 0 64 64">
-                        <circle class="ring-bg" cx="32" cy="32" r="26"/>
-                        <circle class="ring-fill green" cx="32" cy="32" r="26"
-                            stroke-dasharray="84.1 79.2"/>
+                    <svg viewBox="0 0 68 68">
+                        <circle class="ring-bg" cx="34" cy="34" r="28"/>
+                        <circle class="ring-fill green" cx="34" cy="34" r="28"
+                            stroke-dasharray="90.6 85.3"/>
                     </svg>
                     <div class="ring-label">0.41</div>
                 </div>
                 <div class="likelihood-text">
-                    <div class="ll-title">Effect Size (Cohen's d)</div>
+                    <div class="ll-title">Effect Size (Cohen&rsquo;s d)</div>
                     <div class="ll-value">Small-Medium</div>
                     <div class="ll-detail">Detectable practical significance</div>
                 </div>
@@ -576,8 +732,8 @@ td {
             <tbody>
                 <tr>
                     <td>Total Revenue</td>
-                    <td style="text-align:right;font-weight:600">$2,432,891.47</td>
-                    <td style="text-align:right;font-weight:600">$714,280.33</td>
+                    <td style="text-align:right;font-weight:700">$2,432,891.47</td>
+                    <td style="text-align:right;font-weight:700">$714,280.33</td>
                 </tr>
                 <tr>
                     <td>Avg Daily / DMA</td>
@@ -608,21 +764,21 @@ td {
                 <tbody>
                 <tr>
                     <td>Shopify</td>
-                    <td style="text-align:right;font-weight:600">$241,842.30</td>
+                    <td style="text-align:right;font-weight:700">$241,842.30</td>
                     <td style="text-align:right">2.14x</td>
                     <td style="text-align:right">84%</td>
                 </tr>
                 <tr>
                     <td>Amazon</td>
-                    <td style="text-align:right;font-weight:600">$45,589.28</td>
+                    <td style="text-align:right;font-weight:700">$45,589.28</td>
                     <td style="text-align:right">0.40x</td>
                     <td style="text-align:right">16%</td>
                 </tr>
-                <tr style="border-top:2px solid var(--surface-2)">
+                <tr style="border-top:2px solid var(--border)">
                     <td><strong>Combined</strong></td>
-                    <td style="text-align:right;font-weight:700">$287,431.58</td>
-                    <td style="text-align:right;font-weight:700">2.55x</td>
-                    <td style="text-align:right;font-weight:700">100%</td>
+                    <td style="text-align:right;font-weight:800">$287,431.58</td>
+                    <td style="text-align:right;font-weight:800">2.55x</td>
+                    <td style="text-align:right;font-weight:800">100%</td>
                 </tr></tbody>
             </table>
         </div>
@@ -643,14 +799,14 @@ td {
                 <tbody>
                 <tr>
                     <td>Shopify</td>
-                    <td style="text-align:right;font-weight:600;color:var(--green)">+14.2%</td>
+                    <td style="text-align:right;font-weight:700;color:var(--green)">+14.2%</td>
                     <td style="text-align:right">[+7.4%, +21.1%]</td>
                     <td style="text-align:center"><span class="check-icon pass">&#10003;</span></td>
                     <td style="text-align:right">0.0009</td>
                 </tr>
                 <tr>
                     <td>Amazon</td>
-                    <td style="text-align:right;font-weight:600;color:var(--green)">+6.7%</td>
+                    <td style="text-align:right;font-weight:700;color:var(--green)">+6.7%</td>
                     <td style="text-align:right">[+0.8%, +12.6%]</td>
                     <td style="text-align:center"><span class="check-icon pass">&#10003;</span></td>
                     <td style="text-align:right">0.0284</td>
@@ -680,7 +836,7 @@ td {
                         <span class="weight-bar-bg"><span class="weight-bar-fill" style="width:45%"></span></span>
                         45%
                     </td>
-                    <td style="text-align:right;font-weight:600">+14.1%</td>
+                    <td style="text-align:right;font-weight:700">+14.1%</td>
                     <td style="text-align:right">0.0008</td>
                     <td style="text-align:center"><span class="check-icon pass">&#10003;</span></td>
                     <td style="text-align:right;color:var(--text-muted)">0.0190</td>
@@ -692,7 +848,7 @@ td {
                         <span class="weight-bar-bg"><span class="weight-bar-fill" style="width:35%"></span></span>
                         35%
                     </td>
-                    <td style="text-align:right;font-weight:600">+12.8%</td>
+                    <td style="text-align:right;font-weight:700">+12.8%</td>
                     <td style="text-align:right">0.0031</td>
                     <td style="text-align:center"><span class="check-icon pass">&#10003;</span></td>
                     <td style="text-align:right;color:var(--text-muted)">0.0310</td>
@@ -704,14 +860,14 @@ td {
                         <span class="weight-bar-bg"><span class="weight-bar-fill" style="width:20%"></span></span>
                         20%
                     </td>
-                    <td style="text-align:right;font-weight:600">+13.2%</td>
+                    <td style="text-align:right;font-weight:700">+13.2%</td>
                     <td style="text-align:right">0.0019</td>
                     <td style="text-align:center"><span class="check-icon pass">&#10003;</span></td>
                     <td style="text-align:right;color:var(--text-muted)">&mdash;</td>
                     <td style="text-align:right;color:var(--text-muted)">&mdash;</td>
                 </tr></tbody>
             </table>
-            <div style="color: var(--text-muted); font-size: 12px; padding: 8px 0 0 0;">
+            <div style="color: var(--text-muted); font-size: 12px; padding: 12px 0 0 0; font-weight: 500;">
                 Final estimate: Ensemble Weighted
                  &middot; P(true lift > 0): 99.4%
             </div>
@@ -793,7 +949,7 @@ td {
                 </div>
             </div>
         </div>
-        <div style="color: var(--text-muted); font-size: 12px; margin-top: 12px; line-height: 1.6;">
+        <div style="color: var(--text-muted); font-size: 12px; margin-top: 16px; line-height: 1.7; font-weight: 500;">
             The final estimate is a weighted ensemble of all three methods. Weights are
             assigned based on pre-period fit quality (L2 imbalance, R&sup2;) and cross-validation
             performance. Results are validated with placebo tests, AA balance checks, and
@@ -804,27 +960,33 @@ td {
 
         <div class="section">
             <div class="section-title">Recommendations</div>
-            
+            <div class="rec-list">
             <div class="rec-item">
-                <span class="rec-number">1.</span>The test reached statistical significance (p=0.001). There is strong evidence that Facebook ads drive +13.4% incremental lift across Shopify and Amazon combined. This result is corroborated by all three estimators (ASCM, BSTS, DiD) with high agreement (89%).
+                <div class="rec-number">1</div>
+                The test reached statistical significance (p=0.001). There is strong evidence that Facebook ads drive +13.4% incremental lift across Shopify and Amazon combined. This result is corroborated by all three estimators (ASCM, BSTS, DiD) with high agreement (89%).
             </div>
             <div class="rec-item">
-                <span class="rec-number">2.</span>iROAS of 2.55x is profitable — every $1 spent on Facebook generates $2.55 in incremental revenue. Current spend level of ~$112K over 6 weeks appears efficient. Consider testing a 15-20% budget increase to find the diminishing returns curve.
+                <div class="rec-number">2</div>
+                iROAS of 2.55x is profitable — every $1 spent on Facebook generates $2.55 in incremental revenue. Current spend level of ~$112K over 6 weeks appears efficient. Consider testing a 15-20% budget increase to find the diminishing returns curve.
             </div>
             <div class="rec-item">
-                <span class="rec-number">3.</span>Significant Amazon halo effect detected: +6.7% incremental lift on Amazon (p=0.028). Facebook ads are driving cross-platform conversions that platform-reported ROAS cannot capture. Amazon accounts for 16% of total incremental returns — this is revenue you'd miss with platform-only measurement.
+                <div class="rec-number">3</div>
+                Significant Amazon halo effect detected: +6.7% incremental lift on Amazon (p=0.028). Facebook ads are driving cross-platform conversions that platform-reported ROAS cannot capture. Amazon accounts for 16% of total incremental returns — this is revenue you'd miss with platform-only measurement.
             </div>
             <div class="rec-item">
-                <span class="rec-number">4.</span>Cross-platform iROAS breakdown: Shopify $2.14x + Amazon $0.40x = Combined $2.55x. Without measuring the Amazon halo, you'd undervalue Facebook by 19%. Factor this into budget allocation decisions.
+                <div class="rec-number">4</div>
+                Cross-platform iROAS breakdown: Shopify $2.14x + Amazon $0.40x = Combined $2.55x. Without measuring the Amazon halo, you'd undervalue Facebook by 19%. Factor this into budget allocation decisions.
             </div>
             <div class="rec-item">
-                <span class="rec-number">5.</span>Trust score: 87/100 (Trustworthy). All validation checks passed — pre-period balance is excellent (L2=0.023, R²=0.961), placebo tests show 5% false positive rate (calibrated), and all three estimators agree on direction and magnitude. Safe to make budget decisions based on these results.
-            </div>
+                <div class="rec-number">5</div>
+                Trust score: 87/100 (Trustworthy). All validation checks passed — pre-period balance is excellent (L2=0.023, R²=0.961), placebo tests show 5% false positive rate (calibrated), and all three estimators agree on direction and magnitude. Safe to make budget decisions based on these results.
+            </div></div>
         </div>
         
+</div>
 
     <div class="footer">
-        Generated by <strong>LIFT</strong> &mdash; Geo Incrementality Platform &middot; 2026-02-14 15:25 UTC
+        Generated by <strong>LIFT</strong> &mdash; Geo Incrementality Platform &middot; 2026-02-14 17:19 UTC
     </div>
     
 </body>

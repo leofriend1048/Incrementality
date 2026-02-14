@@ -91,6 +91,11 @@ def build_sample_report() -> TestReport:
         amazon_incremental_revenue=45_589.28,
         shopify_iroas=2.14,
         amazon_iroas=0.40,
+        # IF and CPIA: Facebook reports 750 orders, but experiment shows 900 incremental
+        attributed_conversions=750,
+        incremental_conversions=900,
+        incrementality_factor=1.20,  # 900 / 750
+        cpia=125.38,  # $112,840 / 900
     )
 
     # Shopify-specific incrementality

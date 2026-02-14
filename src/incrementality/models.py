@@ -195,6 +195,11 @@ class IncrementalROAS(BaseModel):
     amazon_incremental_revenue: float = 0.0
     shopify_iroas: float = 0.0
     amazon_iroas: float = 0.0
+    # Incrementality Factor & CPIA (populated when conversion data available)
+    attributed_conversions: float = 0.0  # Platform-reported conversions
+    incremental_conversions: float = 0.0  # Experiment-measured incremental conversions
+    incrementality_factor: float = 0.0  # incremental / attributed (1.0 = fully incremental)
+    cpia: float = 0.0  # Cost Per Incremental Acquisition: spend / incremental_conversions
 
 
 class TestReport(BaseModel):

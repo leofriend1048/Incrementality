@@ -1,4 +1,4 @@
-"""LIFT — PDF/HTML report generation.
+"""LIFT — PDF/HTML report generation (Haus-inspired design).
 
 Generates a polished, self-contained HTML report from test results that can
 be opened in any browser or converted to PDF via weasyprint.
@@ -7,6 +7,7 @@ The report includes:
 - Key takeaway callout
 - Executive summary with hero metrics
 - Lift confidence interval visualization
+- Incrementality Factor and CPIA
 - iROAS breakdown (Shopify, Amazon, cross-platform)
 - Model ensemble with visual weight bars
 - Validation trust score with individual checks
@@ -62,135 +63,211 @@ def _trust_label(score: float) -> str:
 # ── CSS ──────────────────────────────────────────────────────────────────────
 
 _CSS = """\
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
 :root {
-    --brand: #06b6d4;
-    --brand-dark: #0891b2;
-    --brand-glow: rgba(6, 182, 212, 0.12);
-    --green: #22c55e;
-    --green-dim: rgba(34, 197, 94, 0.15);
-    --red: #ef4444;
-    --red-dim: rgba(239, 68, 68, 0.12);
-    --yellow: #eab308;
-    --yellow-dim: rgba(234, 179, 8, 0.12);
-    --bg: #0f172a;
-    --surface: #1e293b;
-    --surface-2: #334155;
-    --text: #f1f5f9;
-    --text-muted: #94a3b8;
-    --border: #475569;
+    --brand: #0251F3;
+    --brand-light: #84CBFF;
+    --brand-glow: rgba(2, 81, 243, 0.10);
+    --brand-border: rgba(2, 81, 243, 0.25);
+    --green: #34D399;
+    --green-dim: rgba(52, 211, 153, 0.12);
+    --red: #F87171;
+    --red-dim: rgba(248, 113, 113, 0.10);
+    --yellow: #FBBF24;
+    --yellow-dim: rgba(251, 191, 36, 0.10);
+    --bg: #0B1120;
+    --surface: #111827;
+    --surface-2: #1C2B4A;
+    --surface-3: #243A63;
+    --text: #E8EDF5;
+    --text-muted: #7B93B8;
+    --border: #1E3054;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background: var(--bg);
     color: var(--text);
     line-height: 1.6;
-    padding: 48px 40px;
-    max-width: 920px;
+    padding: 0;
+    max-width: 960px;
     margin: 0 auto;
+    -webkit-font-smoothing: antialiased;
 }
 
 /* ── Header ── */
 .header {
-    border-bottom: 2px solid var(--brand);
-    padding-bottom: 28px;
-    margin-bottom: 36px;
+    background: linear-gradient(135deg, #0B1120 0%, #111D35 50%, #0B1120 100%);
+    padding: 48px 48px 40px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+}
+.header::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--brand), var(--brand-light), var(--brand));
 }
 .brand {
-    font-size: 32px;
+    font-size: 28px;
     font-weight: 800;
-    color: var(--brand);
-    letter-spacing: 3px;
+    letter-spacing: 4px;
+    background: linear-gradient(135deg, var(--brand), var(--brand-light));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
-.brand .mark { margin-right: 10px; }
 .subtitle {
     color: var(--text-muted);
-    font-size: 13px;
-    margin-top: 2px;
-    letter-spacing: 0.5px;
+    font-size: 12px;
+    font-weight: 500;
+    margin-top: 4px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
 }
 .test-name {
-    font-size: 22px;
-    font-weight: 600;
-    margin-top: 20px;
+    font-size: 24px;
+    font-weight: 700;
+    margin-top: 24px;
     color: var(--text);
+    line-height: 1.3;
 }
-.meta {
+.meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+}
+.meta-tag {
+    display: inline-flex;
+    align-items: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 500;
     color: var(--text-muted);
-    font-size: 13px;
-    margin-top: 4px;
+}
+.meta-tag .tag-value {
+    color: var(--text);
+    margin-left: 4px;
 }
 
+/* ── Content ── */
+.content { padding: 40px 48px 48px; }
+
 /* ── Sections ── */
-.section { margin-bottom: 36px; }
+.section { margin-bottom: 40px; }
 .section-title {
-    font-size: 13px;
+    font-size: 11px;
     font-weight: 700;
-    color: var(--brand);
+    color: var(--brand-light);
     text-transform: uppercase;
-    letter-spacing: 1.5px;
-    border-bottom: 1px solid var(--surface-2);
-    padding-bottom: 10px;
+    letter-spacing: 2px;
     margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border), transparent);
 }
 
 /* ── Key Takeaway ── */
 .takeaway {
-    background: var(--brand-glow);
-    border: 1px solid rgba(6, 182, 212, 0.25);
+    background: linear-gradient(135deg, rgba(2, 81, 243, 0.08), rgba(132, 203, 255, 0.04));
+    border: 1px solid var(--brand-border);
     border-radius: 12px;
-    padding: 24px 28px;
-    margin-bottom: 36px;
-    font-size: 16px;
-    line-height: 1.7;
+    padding: 28px 32px;
+    margin-bottom: 40px;
+    position: relative;
 }
-.takeaway .takeaway-label {
-    font-size: 11px;
+.takeaway::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 4px;
+    height: 100%;
+    background: linear-gradient(180deg, var(--brand), var(--brand-light));
+    border-radius: 12px 0 0 12px;
+}
+.takeaway-label {
+    font-size: 10px;
     font-weight: 700;
-    color: var(--brand);
+    color: var(--brand-light);
     text-transform: uppercase;
-    letter-spacing: 1.5px;
-    margin-bottom: 8px;
+    letter-spacing: 2px;
+    margin-bottom: 10px;
+}
+.takeaway p {
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--text-muted);
 }
 .takeaway strong { color: var(--text); }
-.takeaway .highlight { color: var(--green); font-weight: 700; }
-.takeaway .highlight-brand { color: var(--brand); font-weight: 700; }
+.takeaway .hl { color: var(--green); font-weight: 700; }
+.takeaway .hl-brand { color: var(--brand-light); font-weight: 700; }
 
 /* ── Metric Cards ── */
 .metric-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 16px;
-    margin-bottom: 8px;
+    margin-bottom: 16px;
+}
+.metric-grid.three-col {
+    grid-template-columns: repeat(3, 1fr);
 }
 .metric-card {
     background: var(--surface);
-    border-radius: 10px;
-    padding: 22px 24px;
-    border-left: 3px solid var(--brand);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
     position: relative;
+    overflow: hidden;
 }
-.metric-card.green { border-left-color: var(--green); }
-.metric-card.yellow { border-left-color: var(--yellow); }
-.metric-card.red { border-left-color: var(--red); }
+.metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--brand);
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+.metric-card.green::before { background: var(--green); opacity: 1; }
+.metric-card.yellow::before { background: var(--yellow); opacity: 1; }
+.metric-card.red::before { background: var(--red); opacity: 1; }
+.metric-card.brand::before { background: linear-gradient(90deg, var(--brand), var(--brand-light)); opacity: 1; }
 .metric-label {
     font-size: 11px;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 6px;
+    letter-spacing: 0.8px;
+    font-weight: 600;
+    margin-bottom: 8px;
 }
 .metric-value {
-    font-size: 32px;
+    font-size: 36px;
     font-weight: 800;
-    line-height: 1.2;
+    line-height: 1.1;
+    letter-spacing: -0.5px;
 }
+.metric-value.sm { font-size: 26px; }
 .metric-sub {
     font-size: 12px;
     color: var(--text-muted);
-    margin-top: 6px;
+    margin-top: 8px;
+    font-weight: 500;
 }
 .positive { color: var(--green); }
 .negative { color: var(--red); }
@@ -199,30 +276,32 @@ body {
 /* ── CI Bar ── */
 .ci-container {
     background: var(--surface);
-    border-radius: 10px;
-    padding: 20px 24px;
-    margin-top: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 16px;
 }
 .ci-label {
     font-size: 11px;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 12px;
+    letter-spacing: 0.8px;
+    font-weight: 600;
+    margin-bottom: 16px;
 }
 .ci-bar-track {
     position: relative;
-    height: 32px;
+    height: 36px;
     background: var(--surface-2);
-    border-radius: 6px;
+    border-radius: 8px;
     overflow: visible;
-    margin: 0 0 8px 0;
+    margin: 0 0 10px 0;
 }
 .ci-bar-range {
     position: absolute;
     height: 100%;
-    border-radius: 6px;
-    opacity: 0.35;
+    border-radius: 8px;
+    opacity: 0.25;
 }
 .ci-bar-range.positive { background: var(--green); }
 .ci-bar-range.negative { background: var(--red); }
@@ -231,7 +310,7 @@ body {
     position: absolute;
     top: 50%;
     width: 4px;
-    height: 24px;
+    height: 26px;
     border-radius: 2px;
     transform: translateY(-50%) translateX(-50%);
     background: var(--text);
@@ -242,56 +321,58 @@ body {
     height: 100%;
     width: 1px;
     background: var(--text-muted);
-    opacity: 0.5;
+    opacity: 0.4;
 }
 .ci-ticks {
     display: flex;
     justify-content: space-between;
     font-size: 11px;
     color: var(--text-muted);
-    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-weight: 500;
 }
 
 /* ── Likelihood Ring ── */
 .likelihood-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
     gap: 16px;
-    margin-top: 16px;
 }
 .likelihood-card {
-    flex: 1;
     background: var(--surface);
-    border-radius: 10px;
-    padding: 20px 24px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
     display: flex;
     align-items: center;
     gap: 20px;
 }
 .ring-container {
     position: relative;
-    width: 64px;
-    height: 64px;
+    width: 68px;
+    height: 68px;
     flex-shrink: 0;
 }
 .ring-container svg {
     transform: rotate(-90deg);
-    width: 64px;
-    height: 64px;
+    width: 68px;
+    height: 68px;
 }
 .ring-container .ring-bg {
     fill: none;
     stroke: var(--surface-2);
-    stroke-width: 5;
+    stroke-width: 4.5;
 }
 .ring-container .ring-fill {
     fill: none;
-    stroke-width: 5;
+    stroke-width: 4.5;
     stroke-linecap: round;
 }
 .ring-container .ring-fill.green { stroke: var(--green); }
 .ring-container .ring-fill.yellow { stroke: var(--yellow); }
+.ring-container .ring-fill.brand { stroke: var(--brand); }
 .ring-label {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 800;
     position: absolute;
     top: 50%;
@@ -303,11 +384,12 @@ body {
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    font-weight: 600;
 }
 .likelihood-text .ll-value {
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 700;
-    margin-top: 2px;
+    margin-top: 4px;
 }
 .likelihood-text .ll-detail {
     font-size: 12px;
@@ -318,69 +400,74 @@ body {
 /* ── Tables ── */
 table {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     background: var(--surface);
-    border-radius: 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
     overflow: hidden;
 }
 th {
     background: var(--surface-2);
-    color: var(--brand);
-    font-size: 11px;
+    color: var(--brand-light);
+    font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: 12px 16px;
+    letter-spacing: 1px;
+    padding: 14px 18px;
     text-align: left;
     font-weight: 700;
 }
 td {
-    padding: 12px 16px;
-    border-top: 1px solid var(--surface-2);
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
     font-size: 14px;
+    font-weight: 500;
 }
+tr:first-child td { border-top: none; }
 
 /* ── Weight bars ── */
 .weight-bar-bg {
     display: inline-block;
     width: 60px;
-    height: 8px;
-    background: var(--surface-2);
-    border-radius: 4px;
+    height: 6px;
+    background: var(--surface-3);
+    border-radius: 3px;
     overflow: hidden;
     vertical-align: middle;
     margin-right: 8px;
 }
 .weight-bar-fill {
     height: 100%;
-    border-radius: 4px;
-    background: var(--brand);
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--brand), var(--brand-light));
 }
 
 /* ── Trust Meter ── */
 .trust-meter {
     background: var(--surface);
-    border-radius: 10px;
-    padding: 24px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
     margin-bottom: 16px;
 }
 .trust-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
+    margin-bottom: 16px;
 }
 .trust-score-num {
-    font-size: 28px;
+    font-size: 32px;
     font-weight: 800;
 }
-.trust-score-num span { font-size: 14px; color: var(--text-muted); font-weight: 400; }
+.trust-score-num span { font-size: 15px; color: var(--text-muted); font-weight: 500; }
 .trust-verdict {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 1px;
-    padding: 4px 12px;
-    border-radius: 4px;
+    letter-spacing: 1.5px;
+    padding: 6px 14px;
+    border-radius: 6px;
 }
 .trust-verdict.excellent { background: var(--green-dim); color: var(--green); }
 .trust-verdict.marginal { background: var(--yellow-dim); color: var(--yellow); }
@@ -388,133 +475,183 @@ td {
 .trust-bar-bg {
     background: var(--surface-2);
     border-radius: 4px;
-    height: 10px;
+    height: 8px;
     overflow: hidden;
 }
 .trust-bar-fill {
     height: 100%;
     border-radius: 4px;
 }
-.trust-bar-fill.excellent { background: var(--green); }
-.trust-bar-fill.marginal { background: var(--yellow); }
-.trust-bar-fill.bad { background: var(--red); }
+.trust-bar-fill.excellent { background: linear-gradient(90deg, var(--green), #6EE7B7); }
+.trust-bar-fill.marginal { background: linear-gradient(90deg, var(--yellow), #FDE68A); }
+.trust-bar-fill.bad { background: linear-gradient(90deg, var(--red), #FCA5A5); }
 
 /* ── Validation Checks ── */
 .checks {
     background: var(--surface);
-    border-radius: 10px;
-    padding: 16px 20px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px 20px;
 }
 .check-item {
     display: flex;
     align-items: center;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--surface-2);
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
 }
 .check-item:last-child { border-bottom: none; }
 .check-icon {
     width: 28px;
-    font-size: 14px;
+    font-size: 13px;
     flex-shrink: 0;
+    font-weight: 700;
 }
 .check-icon.pass { color: var(--green); }
 .check-icon.fail { color: var(--red); }
 .check-icon.info { color: var(--text-muted); }
-.check-name { flex: 1; font-size: 14px; }
-.check-value {
+.check-name {
+    flex: 1;
     font-size: 13px;
+    font-weight: 500;
+}
+.check-value {
+    font-size: 12px;
     color: var(--text-muted);
-    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-weight: 500;
 }
 .check-badge {
-    font-size: 11px;
-    font-weight: 600;
-    padding: 2px 8px;
-    border-radius: 3px;
-    margin-left: 8px;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-left: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 .check-badge.good { background: var(--green-dim); color: var(--green); }
 .check-badge.ok { background: var(--yellow-dim); color: var(--yellow); }
 .check-badge.poor { background: var(--red-dim); color: var(--red); }
 
 /* ── Recommendations ── */
+.rec-list { display: flex; flex-direction: column; gap: 12px; }
 .rec-item {
     background: var(--surface);
-    border-radius: 10px;
-    padding: 18px 24px;
-    margin-bottom: 12px;
-    border-left: 3px solid var(--brand);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
     font-size: 14px;
     line-height: 1.7;
+    position: relative;
+    padding-left: 56px;
 }
 .rec-number {
-    color: var(--brand);
+    position: absolute;
+    left: 20px;
+    top: 20px;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: var(--brand-glow);
+    border: 1px solid var(--brand-border);
+    color: var(--brand-light);
     font-weight: 800;
-    margin-right: 8px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 /* ── Alerts ── */
 .alert {
-    border-radius: 8px;
-    padding: 14px 18px;
+    border-radius: 10px;
+    padding: 16px 20px;
     margin-top: 12px;
     font-size: 13px;
     line-height: 1.6;
+    font-weight: 500;
+    border: 1px solid;
 }
 .alert.blocker {
     background: var(--red-dim);
-    border-left: 3px solid var(--red);
-    color: #fca5a5;
+    border-color: rgba(248, 113, 113, 0.25);
+    color: #FCA5A5;
 }
 .alert.warning {
     background: var(--yellow-dim);
-    border-left: 3px solid var(--yellow);
-    color: #fde047;
+    border-color: rgba(251, 191, 36, 0.25);
+    color: #FDE68A;
 }
 
 /* ── Methodology ── */
 .method-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+    gap: 16px;
 }
 .method-card {
     background: var(--surface);
-    border-radius: 10px;
-    padding: 18px 20px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
 }
 .method-card .method-name {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 700;
-    color: var(--brand);
-    margin-bottom: 6px;
+    color: var(--brand-light);
+    margin-bottom: 8px;
 }
 .method-card .method-desc {
     font-size: 12px;
     color: var(--text-muted);
-    line-height: 1.5;
+    line-height: 1.6;
 }
 
 /* ── Footer ── */
 .footer {
-    margin-top: 48px;
-    padding-top: 20px;
-    border-top: 1px solid var(--surface-2);
+    padding: 24px 48px;
+    border-top: 1px solid var(--border);
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: 11px;
     text-align: center;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
+.footer strong {
+    background: linear-gradient(135deg, var(--brand), var(--brand-light));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* ── Divider ── */
+.divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+    margin: 40px 0;
 }
 
 @media print {
-    body { background: #fff; color: #1e293b; padding: 20px; }
+    body { background: #fff; color: #1a1a2e; padding: 0; }
+    .header { background: #f8fafc; }
+    .header::before { background: var(--brand); }
+    .brand {
+        -webkit-text-fill-color: var(--brand);
+        color: var(--brand);
+    }
     .metric-card, table, .trust-meter, .checks, .rec-item,
     .alert, .takeaway, .ci-container, .likelihood-card, .method-card {
         background: #f8fafc;
+        border-color: #e2e8f0;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
     }
     .ci-bar-track { background: #e2e8f0; }
     .section { page-break-inside: avoid; }
+    .footer strong {
+        -webkit-text-fill-color: var(--brand);
+        color: var(--brand);
+    }
 }
 """
 
@@ -531,48 +668,53 @@ def _render_html(report: TestReport) -> str:
     parts = []
 
     # ── Header ────────────────────────────────────────────────────────
+    channel_name = report.ad_channel.value.title()
+    scope_name = report.measurement_scope.value.replace('_', ' ').title()
+    test_type = report.test_scope.value.replace('_', ' ').title()
+
     parts.append(f"""
     <div class="header">
-        <div class="brand"><span class="mark">&#9650;</span>LIFT</div>
+        <div class="brand">LIFT</div>
         <div class="subtitle">Geo Incrementality Platform</div>
         <div class="test-name">{_esc(report.test_name)}</div>
-        <div class="meta">
-            {report.ad_channel.value.title()} &middot;
-            {report.test_scope.value.replace('_', ' ').title()} &middot;
-            {report.measurement_scope.value.replace('_', ' ').title()} &middot;
-            {report.duration_weeks} weeks &middot;
-            {report.test_start} &rarr; {report.test_end}
+        <div class="meta-row">
+            <span class="meta-tag">Channel<span class="tag-value">{channel_name}</span></span>
+            <span class="meta-tag">Scope<span class="tag-value">{test_type}</span></span>
+            <span class="meta-tag">Measurement<span class="tag-value">{scope_name}</span></span>
+            <span class="meta-tag">Duration<span class="tag-value">{report.duration_weeks} weeks</span></span>
+            <span class="meta-tag">Period<span class="tag-value">{report.test_start} &rarr; {report.test_end}</span></span>
         </div>
-        <div class="meta">
-            Test ID: {_esc(report.test_id)} &middot;
-            Treatment: {report.num_treatment_dmas} DMAs &middot;
-            Holdout: {report.num_holdout_dmas} DMAs
+        <div class="meta-row" style="margin-top:8px">
+            <span class="meta-tag">Test ID<span class="tag-value">{_esc(report.test_id)}</span></span>
+            <span class="meta-tag">Treatment<span class="tag-value">{report.num_treatment_dmas} DMAs</span></span>
+            <span class="meta-tag">Holdout<span class="tag-value">{report.num_holdout_dmas} DMAs</span></span>
         </div>
     </div>
     """)
 
+    parts.append('<div class="content">')
+
     # ── Key Takeaway ──────────────────────────────────────────────────
-    channel = report.ad_channel.value.title()
     if inc.is_significant and iroas.iroas >= 1.0:
         takeaway = (
-            f"<strong>{channel} ads are driving real, measurable growth.</strong> "
+            f"<strong>{channel_name} ads are driving real, measurable growth.</strong> "
             f"The test detected a statistically significant "
-            f"<span class='highlight'>{_pct(inc.relative_lift)}</span> incremental lift "
-            f"with an iROAS of <span class='highlight'>{iroas.iroas:.2f}x</span> "
+            f"<span class='hl'>{_pct(inc.relative_lift)}</span> incremental lift "
+            f"with an iROAS of <span class='hl'>{iroas.iroas:.2f}x</span> "
             f"&mdash; every $1 spent generated "
-            f"<span class='highlight'>{_money(iroas.iroas)}</span> in incremental revenue."
+            f"<span class='hl'>${iroas.iroas:.2f}</span> in incremental revenue."
         )
     elif inc.is_significant and iroas.iroas < 1.0:
         takeaway = (
-            f"<strong>{channel} ads show a measurable effect, but returns are below breakeven.</strong> "
+            f"<strong>{channel_name} ads show a measurable effect, but returns are below breakeven.</strong> "
             f"The test detected a significant "
-            f"<span class='highlight'>{_pct(inc.relative_lift)}</span> lift, "
+            f"<span class='hl'>{_pct(inc.relative_lift)}</span> lift, "
             f"but iROAS of <span style='color:var(--yellow)'>{iroas.iroas:.2f}x</span> "
             f"means ad spend exceeds incremental revenue. Consider optimizing creative and targeting."
         )
     else:
         takeaway = (
-            f"<strong>{channel} ads did not show a statistically significant effect.</strong> "
+            f"<strong>{channel_name} ads did not show a statistically significant effect.</strong> "
             f"Measured lift of {_pct(inc.relative_lift)} (p={inc.p_value:.3f}) "
             f"could be due to chance. Consider running a longer test or increasing holdout size."
         )
@@ -580,7 +722,7 @@ def _render_html(report: TestReport) -> str:
     parts.append(f"""
     <div class="takeaway">
         <div class="takeaway-label">Key Takeaway</div>
-        {takeaway}
+        <p>{takeaway}</p>
     </div>
     """)
 
@@ -605,23 +747,52 @@ def _render_html(report: TestReport) -> str:
             </div>
             <div class="metric-card {sig_class}">
                 <div class="metric-label">Statistical Significance</div>
-                <div class="metric-value" style="font-size:24px">{sig_text}</div>
-                <div class="metric-sub">p = {inc.p_value:.4f} &middot; Cohen's d = {inc.cohen_d:.3f}</div>
+                <div class="metric-value sm">{sig_text}</div>
+                <div class="metric-sub">p = {inc.p_value:.4f} &middot; Cohen&rsquo;s d = {inc.cohen_d:.3f}</div>
             </div>
-            <div class="metric-card">
+            <div class="metric-card brand">
                 <div class="metric-label">Incremental Revenue</div>
-                <div class="metric-value" style="font-size:24px">{_money(iroas.incremental_revenue)}</div>
+                <div class="metric-value sm">{_money(iroas.incremental_revenue)}</div>
                 <div class="metric-sub">on {_money(iroas.total_ad_spend)} total ad spend</div>
             </div>
         </div>
     """)
+
+    # ── IF and CPIA cards (if available) ──────────────────────────────
+    if iroas.incrementality_factor > 0 or iroas.cpia > 0:
+        if_class = "green" if 0.5 <= iroas.incrementality_factor <= 1.5 else "yellow"
+        if_label = (
+            "Highly Incremental" if iroas.incrementality_factor >= 1.0
+            else "Partially Incremental" if iroas.incrementality_factor >= 0.5
+            else "Low Incrementality"
+        )
+        cpia_display = f"${iroas.cpia:,.0f}" if iroas.cpia > 0 else "N/A"
+
+        parts.append(f"""
+        <div class="metric-grid three-col" style="margin-top:0">
+            <div class="metric-card {if_class}">
+                <div class="metric-label">Incrementality Factor</div>
+                <div class="metric-value">{iroas.incrementality_factor:.2f}</div>
+                <div class="metric-sub">{if_label} &middot; {iroas.incremental_conversions:,.0f} incr. / {iroas.attributed_conversions:,.0f} attr.</div>
+            </div>
+            <div class="metric-card brand">
+                <div class="metric-label">Cost Per Incr. Acquisition</div>
+                <div class="metric-value sm">{cpia_display}</div>
+                <div class="metric-sub">{_money(iroas.total_ad_spend)} / {iroas.incremental_conversions:,.0f} conversions</div>
+            </div>
+            <div class="metric-card brand">
+                <div class="metric-label">Incremental Orders</div>
+                <div class="metric-value sm">{iroas.incremental_conversions:,.0f}</div>
+                <div class="metric-sub">Platform reported: {iroas.attributed_conversions:,.0f}</div>
+            </div>
+        </div>
+        """)
 
     # ── Confidence Interval Visualization ─────────────────────────────
     ci_low = inc.lift_lower_ci
     ci_high = inc.lift_upper_ci
     point = inc.relative_lift
 
-    # Determine visual range
     vis_min = min(ci_low, -0.05)
     vis_max = max(ci_high, 0.25)
     vis_range = vis_max - vis_min
@@ -657,18 +828,18 @@ def _render_html(report: TestReport) -> str:
     # ── Lift Likelihood + Effect Size ─────────────────────────────────
     if inc.lift_likelihood > 0:
         ll = inc.lift_likelihood
-        circumference = 2 * 3.14159 * 26
+        circumference = 2 * 3.14159 * 28  # r=28 for 68px svg
         fill_len = ll * circumference
         gap_len = circumference - fill_len
         ring_cls = "green" if ll >= 0.90 else "yellow"
 
         parts.append(f"""
-        <div class="likelihood-row">
+        <div class="likelihood-row" style="margin-top:16px">
             <div class="likelihood-card">
                 <div class="ring-container">
-                    <svg viewBox="0 0 64 64">
-                        <circle class="ring-bg" cx="32" cy="32" r="26"/>
-                        <circle class="ring-fill {ring_cls}" cx="32" cy="32" r="26"
+                    <svg viewBox="0 0 68 68">
+                        <circle class="ring-bg" cx="34" cy="34" r="28"/>
+                        <circle class="ring-fill {ring_cls}" cx="34" cy="34" r="28"
                             stroke-dasharray="{fill_len:.1f} {gap_len:.1f}"/>
                     </svg>
                     <div class="ring-label">{ll:.0%}</div>
@@ -681,15 +852,15 @@ def _render_html(report: TestReport) -> str:
             </div>
             <div class="likelihood-card">
                 <div class="ring-container">
-                    <svg viewBox="0 0 64 64">
-                        <circle class="ring-bg" cx="32" cy="32" r="26"/>
-                        <circle class="ring-fill {'green' if inc.cohen_d >= 0.3 else 'yellow'}" cx="32" cy="32" r="26"
+                    <svg viewBox="0 0 68 68">
+                        <circle class="ring-bg" cx="34" cy="34" r="28"/>
+                        <circle class="ring-fill {'green' if inc.cohen_d >= 0.3 else 'yellow'}" cx="34" cy="34" r="28"
                             stroke-dasharray="{min(inc.cohen_d / 0.8, 1.0) * circumference:.1f} {circumference - min(inc.cohen_d / 0.8, 1.0) * circumference:.1f}"/>
                     </svg>
                     <div class="ring-label">{inc.cohen_d:.2f}</div>
                 </div>
                 <div class="likelihood-text">
-                    <div class="ll-title">Effect Size (Cohen's d)</div>
+                    <div class="ll-title">Effect Size (Cohen&rsquo;s d)</div>
                     <div class="ll-value">{'Large' if inc.cohen_d >= 0.8 else ('Medium' if inc.cohen_d >= 0.5 else ('Small-Medium' if inc.cohen_d >= 0.3 else 'Small'))}</div>
                     <div class="ll-detail">{'Strong practical significance' if inc.cohen_d >= 0.5 else 'Detectable practical significance'}</div>
                 </div>
@@ -714,8 +885,8 @@ def _render_html(report: TestReport) -> str:
             <tbody>
                 <tr>
                     <td>Total Revenue</td>
-                    <td style="text-align:right;font-weight:600">{_money(report.treatment_total_revenue)}</td>
-                    <td style="text-align:right;font-weight:600">{_money(report.holdout_total_revenue)}</td>
+                    <td style="text-align:right;font-weight:700">{_money(report.treatment_total_revenue)}</td>
+                    <td style="text-align:right;font-weight:700">{_money(report.holdout_total_revenue)}</td>
                 </tr>
                 <tr>
                     <td>Avg Daily / DMA</td>
@@ -743,7 +914,7 @@ def _render_html(report: TestReport) -> str:
             cross_rows += f"""
                 <tr>
                     <td>Shopify</td>
-                    <td style="text-align:right;font-weight:600">{_money(iroas.shopify_incremental_revenue)}</td>
+                    <td style="text-align:right;font-weight:700">{_money(iroas.shopify_incremental_revenue)}</td>
                     <td style="text-align:right">{iroas.shopify_iroas:.2f}x</td>
                     <td style="text-align:right">{shopify_share:.0f}%</td>
                 </tr>"""
@@ -751,16 +922,16 @@ def _render_html(report: TestReport) -> str:
             cross_rows += f"""
                 <tr>
                     <td>Amazon</td>
-                    <td style="text-align:right;font-weight:600">{_money(iroas.amazon_incremental_revenue)}</td>
+                    <td style="text-align:right;font-weight:700">{_money(iroas.amazon_incremental_revenue)}</td>
                     <td style="text-align:right">{iroas.amazon_iroas:.2f}x</td>
                     <td style="text-align:right">{amazon_share:.0f}%</td>
                 </tr>"""
         cross_rows += f"""
-                <tr style="border-top:2px solid var(--surface-2)">
+                <tr style="border-top:2px solid var(--border)">
                     <td><strong>Combined</strong></td>
-                    <td style="text-align:right;font-weight:700">{_money(iroas.incremental_revenue)}</td>
-                    <td style="text-align:right;font-weight:700">{iroas.iroas:.2f}x</td>
-                    <td style="text-align:right;font-weight:700">100%</td>
+                    <td style="text-align:right;font-weight:800">{_money(iroas.incremental_revenue)}</td>
+                    <td style="text-align:right;font-weight:800">{iroas.iroas:.2f}x</td>
+                    <td style="text-align:right;font-weight:800">100%</td>
                 </tr>"""
 
         parts.append(f"""
@@ -787,10 +958,11 @@ def _render_html(report: TestReport) -> str:
             if result:
                 sig_icon = "&#10003;" if result.is_significant else "&#10007;"
                 sig_cls = "pass" if result.is_significant else "fail"
+                lift_color = "color:var(--green)" if result.relative_lift > 0 and result.is_significant else ""
                 plat_rows += f"""
                 <tr>
                     <td>{name}</td>
-                    <td style="text-align:right;font-weight:600;{'color:var(--green)' if result.relative_lift > 0 and result.is_significant else ''}">{_pct(result.relative_lift)}</td>
+                    <td style="text-align:right;font-weight:700;{lift_color}">{_pct(result.relative_lift)}</td>
                     <td style="text-align:right">[{_pct(result.lift_lower_ci)}, {_pct(result.lift_upper_ci)}]</td>
                     <td style="text-align:center"><span class="check-icon {sig_cls}">{sig_icon}</span></td>
                     <td style="text-align:right">{result.p_value:.4f}</td>
@@ -832,7 +1004,7 @@ def _render_html(report: TestReport) -> str:
                         <span class="weight-bar-bg"><span class="weight-bar-fill" style="width:{bar_w:.0f}%"></span></span>
                         {weight:.0%}
                     </td>
-                    <td style="text-align:right;font-weight:600">{_pct(result.relative_lift)}</td>
+                    <td style="text-align:right;font-weight:700">{_pct(result.relative_lift)}</td>
                     <td style="text-align:right">{result.p_value:.4f}</td>
                     <td style="text-align:center"><span class="check-icon {sig_cls}">{sig_icon}</span></td>
                     <td style="text-align:right;color:var(--text-muted)">{l2}</td>
@@ -856,7 +1028,7 @@ def _render_html(report: TestReport) -> str:
                 </thead>
                 <tbody>{model_rows}</tbody>
             </table>
-            <div style="color: var(--text-muted); font-size: 12px; padding: 8px 0 0 0;">
+            <div style="color: var(--text-muted); font-size: 12px; padding: 12px 0 0 0; font-weight: 500;">
                 Final estimate: {_esc(inc.method.replace('_', ' ').title())}
                 {f' &middot; P(true lift > 0): {inc.lift_likelihood:.1%}' if inc.lift_likelihood > 0 else ''}
             </div>
@@ -977,7 +1149,7 @@ def _render_html(report: TestReport) -> str:
                 </div>
             </div>
         </div>
-        <div style="color: var(--text-muted); font-size: 12px; margin-top: 12px; line-height: 1.6;">
+        <div style="color: var(--text-muted); font-size: 12px; margin-top: 16px; line-height: 1.7; font-weight: 500;">
             The final estimate is a weighted ensemble of all three methods. Weights are
             assigned based on pre-period fit quality (L2 imbalance, R&sup2;) and cross-validation
             performance. Results are validated with placebo tests, AA balance checks, and
@@ -992,15 +1164,18 @@ def _render_html(report: TestReport) -> str:
         for i, rec in enumerate(report.recommendations, 1):
             rec_html += f"""
             <div class="rec-item">
-                <span class="rec-number">{i}.</span>{_esc(rec)}
+                <div class="rec-number">{i}</div>
+                {_esc(rec)}
             </div>"""
 
         parts.append(f"""
         <div class="section">
             <div class="section-title">Recommendations</div>
-            {rec_html}
+            <div class="rec-list">{rec_html}</div>
         </div>
         """)
+
+    parts.append("</div>")  # close .content
 
     # ── Footer ────────────────────────────────────────────────────────
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
