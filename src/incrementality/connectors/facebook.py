@@ -152,6 +152,8 @@ _META_DMA_TO_NIELSEN: dict[str, str] = {
 class FacebookConnector:
     """Connects to Meta Marketing API for ad spend by DMA."""
 
+    DEFAULT_TIMEOUT = 30  # seconds per request
+
     def __init__(self, config: FacebookConfig):
         self.config = config
         self.session = requests.Session()
@@ -159,7 +161,7 @@ class FacebookConnector:
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> dict:
         url = f"{_GRAPH_API_BASE}/{path}"
-        resp = self.session.get(url, params=params or {})
+        resp = self.session.get(url, params=params or {}, timeout=self.DEFAULT_TIMEOUT)
         resp.raise_for_status()
         return resp.json()
 

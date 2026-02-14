@@ -521,7 +521,7 @@ def auto_design_test(
                 analysis_treatment,
                 analysis_holdout,
                 test_duration_weeks=power_result.recommended_duration_weeks,
-                n_simulations=100,
+                n_simulations=50,
                 alpha=config.significance_level,
             )
             power_result.simulated_power = sim_power.simulated_power

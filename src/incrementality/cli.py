@@ -165,6 +165,23 @@ def design(
     if data_dir:
         with step("Loading historical data from CSV"):
             data = orchestrator.load_data_from_csv(data_dir)
+    elif not data_dir:
+        # Pull from APIs with per-connector progress
+        with step("Pulling historical data from APIs"):
+            try:
+                data = orchestrator.pull_historical_data(lookback_weeks)
+            except Exception as e:
+                warning(f"API pull failed: {e}")
+                info("Trying cached data...")
+                data = orchestrator.load_cached_data()
+
+        # Show what we got
+        for src, df in (data or {}).items():
+            if not df.empty:
+                done(f"{src.title()}: [accent]{len(df)}[/accent] rows")
+            elif src in ("shopify",):
+                warning(f"{src.title()}: no data (check credentials)")
+        spacer()
 
     with step("Running automatic test design"):
         test_design = orchestrator.design_test(

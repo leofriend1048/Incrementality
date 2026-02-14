@@ -23,6 +23,7 @@ class ShopifyConnector:
     """Connects to a Shopify store and pulls order data by DMA."""
 
     BASE_URL = "https://{shop_domain}/admin/api/{api_version}"
+    DEFAULT_TIMEOUT = 30  # seconds per request
 
     def __init__(self, config: ShopifyConfig):
         self.config = config
@@ -41,7 +42,7 @@ class ShopifyConnector:
         results = []
         url = f"{self.base_url}/{endpoint}.json"
         while url:
-            resp = self.session.get(url, params=params)
+            resp = self.session.get(url, params=params, timeout=self.DEFAULT_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
             key = endpoint.split("/")[-1]

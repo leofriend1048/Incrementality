@@ -94,34 +94,38 @@ class TestOrchestrator:
         lookback_weeks: int = 12,
         end_date: date | None = None,
     ) -> dict[str, pd.DataFrame]:
-        """Pull historical data from all configured connectors."""
+        """Pull historical data from all configured connectors.
+
+        Each connector is called independently with error handling so that
+        a failure in one platform doesn't block the others.
+        """
         end = end_date or date.today()
         start = end - timedelta(weeks=lookback_weeks)
-        data = {}
+        data: dict[str, pd.DataFrame] = {}
 
-        if self._shopify:
-            logger.info(f"Pulling Shopify data: {start} to {end}")
-            data["shopify"] = self._shopify.get_daily_revenue_by_dma(start, end)
-        else:
-            data["shopify"] = pd.DataFrame()
+        connectors = [
+            ("shopify", self._shopify, "get_daily_revenue_by_dma"),
+            ("amazon", self._amazon, "get_daily_revenue_by_dma"),
+            ("facebook", self._facebook, "fetch_spend_by_dma"),
+            ("youtube", self._youtube, "fetch_spend_by_dma"),
+        ]
 
-        if self._amazon:
-            logger.info(f"Pulling Amazon data: {start} to {end}")
-            data["amazon"] = self._amazon.get_daily_revenue_by_dma(start, end)
-        else:
-            data["amazon"] = pd.DataFrame()
+        for name, connector, method_name in connectors:
+            if connector is None:
+                data[name] = pd.DataFrame()
+                continue
 
-        if self._facebook:
-            logger.info(f"Pulling Facebook spend data: {start} to {end}")
-            data["facebook"] = self._facebook.fetch_spend_by_dma(start, end)
-        else:
-            data["facebook"] = pd.DataFrame()
-
-        if self._youtube:
-            logger.info(f"Pulling YouTube spend data: {start} to {end}")
-            data["youtube"] = self._youtube.fetch_spend_by_dma(start, end)
-        else:
-            data["youtube"] = pd.DataFrame()
+            logger.info(f"Pulling {name.title()} data: {start} to {end}")
+            try:
+                method = getattr(connector, method_name)
+                data[name] = method(start, end)
+                logger.info(f"  {name.title()}: {len(data[name])} rows fetched")
+            except Exception as e:
+                logger.warning(
+                    f"{name.title()} API failed ({type(e).__name__}): {e}. "
+                    f"Continuing without {name} data."
+                )
+                data[name] = pd.DataFrame()
 
         # Cache to disk
         for name, df in data.items():

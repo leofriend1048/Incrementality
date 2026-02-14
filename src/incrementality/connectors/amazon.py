@@ -38,6 +38,8 @@ class AmazonConnector:
     for zip-to-DMA mapping. Without RDT, shipping addresses are null.
     """
 
+    DEFAULT_TIMEOUT = 30  # seconds per request
+
     def __init__(self, config: AmazonConfig):
         self.config = config
         self.base_url = _ENDPOINTS[config.region]
@@ -52,7 +54,7 @@ class AmazonConnector:
             "refresh_token": self.config.refresh_token,
             "client_id": self.config.client_id,
             "client_secret": self.config.client_secret,
-        })
+        }, timeout=self.DEFAULT_TIMEOUT)
         resp.raise_for_status()
         self._access_token = resp.json()["access_token"]
         self.session.headers.update({
@@ -88,10 +90,10 @@ class AmazonConnector:
             ],
         }
 
-        resp = self.session.post(url, json=payload)
+        resp = self.session.post(url, json=payload, timeout=self.DEFAULT_TIMEOUT)
         if resp.status_code == 403:
             self._refresh_access_token()
-            resp = self.session.post(url, json=payload)
+            resp = self.session.post(url, json=payload, timeout=self.DEFAULT_TIMEOUT)
         resp.raise_for_status()
 
         self._rdt_token = resp.json()["restrictedDataToken"]
@@ -103,10 +105,10 @@ class AmazonConnector:
         if not self._access_token:
             self._refresh_access_token()
         url = f"{self.base_url}{path}"
-        resp = self.session.get(url, params=params)
+        resp = self.session.get(url, params=params, timeout=self.DEFAULT_TIMEOUT)
         if resp.status_code == 403:
             self._refresh_access_token()
-            resp = self.session.get(url, params=params)
+            resp = self.session.get(url, params=params, timeout=self.DEFAULT_TIMEOUT)
         resp.raise_for_status()
         return resp.json()
 
@@ -125,13 +127,13 @@ class AmazonConnector:
         self.session.headers["x-amz-access-token"] = self._rdt_token
 
         try:
-            resp = self.session.get(url, params=params)
+            resp = self.session.get(url, params=params, timeout=self.DEFAULT_TIMEOUT)
             if resp.status_code == 403:
                 # RDT may have expired, refresh both tokens
                 self._refresh_access_token()
                 self._get_restricted_data_token()
                 self.session.headers["x-amz-access-token"] = self._rdt_token
-                resp = self.session.get(url, params=params)
+                resp = self.session.get(url, params=params, timeout=self.DEFAULT_TIMEOUT)
             resp.raise_for_status()
             return resp.json()
         finally:
