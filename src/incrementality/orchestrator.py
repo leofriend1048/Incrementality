@@ -165,6 +165,7 @@ class TestOrchestrator:
         target_mde: float | None = None,
         data: dict[str, pd.DataFrame] | None = None,
         lookback_weeks: int = 12,
+        run_simulation: bool = True,
     ) -> TestDesign:
         """Design an incrementality test."""
         if data is None:
@@ -186,6 +187,7 @@ class TestOrchestrator:
             config=self.config.statistical,
             test_name=test_name,
             target_mde=target_mde,
+            run_simulation=run_simulation,
         )
 
         self._save_design(design)

@@ -261,6 +261,7 @@ def demo(
         test_name=f"Demo: {channel.title()} Incrementality",
         data=data,
         lookback_weeks=weeks,
+        run_simulation=False,
     )
     _print_design(test_design)
 
