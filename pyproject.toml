@@ -33,6 +33,8 @@ causalimpact = ["tfcausalimpact>=0.1"]
 geo = ["geopandas>=0.14", "shapely>=2.0"]
 # PDF report generation
 pdf = ["weasyprint>=60.0"]
+# Streamlit dashboard
+dashboard = ["streamlit>=1.30", "plotly>=5.18"]
 # All connectors + advanced features
 all = [
     "shopifyapi>=12.0",
@@ -42,6 +44,8 @@ all = [
     "geopandas>=0.14",
     "shapely>=2.0",
     "weasyprint>=60.0",
+    "streamlit>=1.30",
+    "plotly>=5.18",
 ]
 dev = [
     "pytest>=7.0",
