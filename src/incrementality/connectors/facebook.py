@@ -700,7 +700,7 @@ class FacebookConnector:
                 logger.warning(
                     f"Facebook DMA mapping: {n_mapped}/{total_rows} rows mapped "
                     f"({coverage_pct:.0%}). {len(unmapped_dmas)} DMA names unmapped: "
-                    f"{sorted(unmapped_dmas)[:5]}"
+                    f"{sorted(unmapped_dmas)}"
                 )
             else:
                 logger.info(
