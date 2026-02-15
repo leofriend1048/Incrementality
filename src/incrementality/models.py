@@ -137,6 +137,7 @@ class TestDesign(BaseModel):
     num_holdout_dmas: int = 0
     # Statistical
     power_analysis: PowerAnalysisResult | None = None
+    feasibility: FeasibilityResult | None = None
     balance_score: float = 0.0  # 0-1, higher = better balance between cells
     # Targeting deployment state — saved before deploy so we can revert
     original_targeting: dict = Field(default_factory=dict)

@@ -93,24 +93,36 @@ class TestOrchestrator:
         self,
         lookback_weeks: int = 12,
         end_date: date | None = None,
+        ad_channel: AdChannel | None = None,
+        campaign_ids: list[str] | None = None,
     ) -> dict[str, pd.DataFrame]:
         """Pull historical data from all configured connectors.
 
         Each connector is called independently with error handling so that
         a failure in one platform doesn't block the others.
+
+        Args:
+            lookback_weeks: Weeks of historical data to fetch.
+            end_date: End date for data pull (default: today).
+            ad_channel: If set with campaign_ids, filters ad spend to those campaigns.
+            campaign_ids: Campaign IDs to filter ad spend data (requires ad_channel).
         """
         end = end_date or date.today()
         start = end - timedelta(weeks=lookback_weeks)
         data: dict[str, pd.DataFrame] = {}
 
-        connectors = [
+        # Revenue connectors — always fetch all data
+        revenue_connectors = [
             ("shopify", self._shopify, "get_daily_revenue_by_dma"),
             ("amazon", self._amazon, "get_daily_revenue_by_dma"),
+        ]
+        # Ad spend connectors — may filter by campaign_ids
+        spend_connectors = [
             ("facebook", self._facebook, "fetch_spend_by_dma"),
             ("youtube", self._youtube, "fetch_spend_by_dma"),
         ]
 
-        for name, connector, method_name in connectors:
+        for name, connector, method_name in revenue_connectors:
             if connector is None:
                 data[name] = pd.DataFrame()
                 continue
@@ -119,6 +131,31 @@ class TestOrchestrator:
             try:
                 method = getattr(connector, method_name)
                 data[name] = method(start, end)
+                logger.info(f"  {name.title()}: {len(data[name])} rows fetched")
+            except Exception as e:
+                logger.warning(
+                    f"{name.title()} API failed ({type(e).__name__}): {e}. "
+                    f"Continuing without {name} data."
+                )
+                data[name] = pd.DataFrame()
+
+        for name, connector, method_name in spend_connectors:
+            if connector is None:
+                data[name] = pd.DataFrame()
+                continue
+
+            logger.info(f"Pulling {name.title()} data: {start} to {end}")
+            try:
+                method = getattr(connector, method_name)
+                # Filter by campaign_ids if this is the channel being tested
+                if campaign_ids and ad_channel and ad_channel.value == name:
+                    logger.info(
+                        f"  Filtering {name.title()} spend to campaigns: "
+                        f"{campaign_ids}"
+                    )
+                    data[name] = method(start, end, campaign_ids)
+                else:
+                    data[name] = method(start, end)
                 logger.info(f"  {name.title()}: {len(data[name])} rows fetched")
             except Exception as e:
                 logger.warning(
@@ -180,7 +217,11 @@ class TestOrchestrator:
         """Design an incrementality test."""
         if data is None:
             try:
-                data = self.pull_historical_data(lookback_weeks)
+                data = self.pull_historical_data(
+                    lookback_weeks,
+                    ad_channel=ad_channel,
+                    campaign_ids=campaign_ids,
+                )
             except Exception:
                 logger.info("API pull failed, trying cached data")
                 data = self.load_cached_data()

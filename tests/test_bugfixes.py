@@ -366,3 +366,108 @@ class TestZipToDMANoDuplicates:
         assert zip_to_dma("11201") == "501"  # Brooklyn
         # Houston core should be 618
         assert zip_to_dma("77001") == "618"  # Houston proper
+
+
+# ---------------------------------------------------------------------------
+# Campaign-level design: ad spend should be filtered by campaign IDs
+# ---------------------------------------------------------------------------
+
+class TestCampaignLevelDesign:
+    def test_pull_historical_data_accepts_campaign_ids(self):
+        """pull_historical_data should accept ad_channel and campaign_ids params."""
+        from incrementality.orchestrator import TestOrchestrator
+        from incrementality.config import Config
+        from incrementality.models import AdChannel
+        import inspect
+
+        sig = inspect.signature(TestOrchestrator.pull_historical_data)
+        param_names = list(sig.parameters.keys())
+        assert "campaign_ids" in param_names, \
+            "pull_historical_data should accept campaign_ids parameter"
+        assert "ad_channel" in param_names, \
+            "pull_historical_data should accept ad_channel parameter"
+
+    def test_design_test_passes_campaign_ids_to_data_pull(self):
+        """design_test should pass campaign_ids when pulling historical data."""
+        from unittest.mock import patch, MagicMock
+        from incrementality.orchestrator import TestOrchestrator
+        from incrementality.config import Config
+        from incrementality.models import AdChannel, TestScope
+
+        config = Config()
+        orch = TestOrchestrator(config)
+
+        # Mock pull_historical_data to capture its arguments
+        with patch.object(orch, "pull_historical_data") as mock_pull:
+            mock_pull.side_effect = Exception("stop here")
+            with patch.object(orch, "load_cached_data", return_value={}):
+                try:
+                    orch.design_test(
+                        ad_channel=AdChannel.FACEBOOK,
+                        test_scope=TestScope.CAMPAIGN,
+                        campaign_ids=["123", "456"],
+                    )
+                except Exception:
+                    pass
+
+            # Verify campaign_ids was passed
+            mock_pull.assert_called_once()
+            call_kwargs = mock_pull.call_args
+            assert call_kwargs.kwargs.get("campaign_ids") == ["123", "456"]
+            assert call_kwargs.kwargs.get("ad_channel") == AdChannel.FACEBOOK
+
+
+# ---------------------------------------------------------------------------
+# Feasibility should be stored in TestDesign
+# ---------------------------------------------------------------------------
+
+class TestFeasibilityInDesign:
+    def test_feasibility_field_exists(self):
+        """TestDesign model should have a feasibility field."""
+        from incrementality.models import TestDesign
+        assert "feasibility" in TestDesign.model_fields
+
+    def test_feasibility_populated_after_design(self):
+        """auto_design_test should populate feasibility in the returned design."""
+        from incrementality.design.optimizer import auto_design_test
+        from incrementality.models import AdChannel, TestScope, MeasurementScope
+
+        pre, post, t_dmas, h_dmas = _make_panel(
+            n_treatment=30, n_holdout=10, n_pre=60, n_post=21,
+        )
+        # Combine into single historical data
+        all_data = pd.concat([pre, post])
+        all_data["orders"] = 10
+
+        design = auto_design_test(
+            shopify_daily=all_data,
+            amazon_daily=None,
+            facebook_daily=all_data.rename(columns={"revenue": "spend"}),
+            youtube_daily=None,
+            ad_channel=AdChannel.FACEBOOK,
+            test_scope=TestScope.CHANNEL,
+            measurement_scope=MeasurementScope.SHOPIFY_ONLY,
+            run_simulation=False,
+        )
+
+        assert design.feasibility is not None
+        assert hasattr(design.feasibility, "is_feasible")
+        assert hasattr(design.feasibility, "power_score")
+        assert hasattr(design.feasibility, "reasons")
+        assert len(design.feasibility.reasons) > 0
+
+
+# ---------------------------------------------------------------------------
+# CLI analyze should accept --attributed-conversions
+# ---------------------------------------------------------------------------
+
+class TestCLIAttributedConversions:
+    def test_analyze_has_attributed_conversions_param(self):
+        """The analyze CLI command should accept --attributed-conversions."""
+        from incrementality.cli import analyze
+        import click
+
+        # Inspect click command params
+        param_names = [p.name for p in analyze.params]
+        assert "attributed_conversions" in param_names, \
+            "analyze command should have --attributed-conversions option"

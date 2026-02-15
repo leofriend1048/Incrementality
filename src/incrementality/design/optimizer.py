@@ -596,6 +596,7 @@ def auto_design_test(
         num_treatment_dmas=n_treatment,
         num_holdout_dmas=n_holdout,
         power_analysis=power_result,
+        feasibility=feasibility,
         balance_score=balance_score,
         status=TestStatus.DESIGNED,
     )

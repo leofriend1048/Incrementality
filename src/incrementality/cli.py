@@ -169,7 +169,11 @@ def design(
         # Pull from APIs with per-connector progress
         with step("Pulling historical data from APIs"):
             try:
-                data = orchestrator.pull_historical_data(lookback_weeks)
+                data = orchestrator.pull_historical_data(
+                    lookback_weeks,
+                    ad_channel=ad_channel,
+                    campaign_ids=campaign_ids,
+                )
             except Exception as e:
                 warning(f"API pull failed: {e}")
                 info("Trying cached data...")
@@ -231,8 +235,11 @@ def design(
 @click.option("--test-id", required=True, help="Test ID to analyze")
 @click.option("--data-dir", type=click.Path(), default=None,
               help="Directory with test period CSV data")
+@click.option("--attributed-conversions", type=float, default=0.0,
+              help="Platform-reported conversions (from Ads Manager) for IF/CPIA")
 @click.pass_context
-def analyze(ctx: click.Context, test_id: str, data_dir: str | None) -> None:
+def analyze(ctx: click.Context, test_id: str, data_dir: str | None,
+            attributed_conversions: float) -> None:
     """Analyze a completed test and generate the incrementality report."""
     from incrementality.orchestrator import TestOrchestrator
 
@@ -285,6 +292,7 @@ def analyze(ctx: click.Context, test_id: str, data_dir: str | None) -> None:
         with step("Running causal inference analysis"):
             report = orchestrator.analyze_test(
                 test_design, pre_data, post_data, ad_spend,
+                attributed_conversions=attributed_conversions,
             )
     except Exception as e:
         fail(f"Analysis failed: {e}")
@@ -667,6 +675,27 @@ def _print_design(design) -> None:
         if pa.power_score > 0:
             ps_bar = score_bar(pa.power_score, 100, 20)
             kv("Power Score", f"{ps_bar}  [heading]{pa.power_score:.0f}/100[/heading]")
+        spacer()
+
+    # Feasibility
+    if design.feasibility:
+        feas = design.feasibility
+        section("Feasibility")
+        if feas.is_feasible:
+            done(f"Test is [ok]FEASIBLE[/ok] (power score: {feas.power_score:.0f}/100)")
+        else:
+            fail(f"Test is [warn]NOT FEASIBLE[/warn] (power score: {feas.power_score:.0f}/100)")
+        kv("Opportunity cost", f"${feas.estimated_opportunity_cost:,.0f}")
+        for reason in feas.reasons:
+            if reason.startswith("BLOCK:"):
+                console.print(f"    [warn]{reason}[/warn]")
+            elif reason.startswith("WARNING:"):
+                console.print(f"    [yellow]{reason}[/yellow]")
+            elif reason.startswith("PASS:"):
+                console.print(f"    [ok]{reason}[/ok]")
+        if feas.recommendations:
+            for rec in feas.recommendations:
+                info(f"  {rec}")
         spacer()
 
     # DMA assignments
