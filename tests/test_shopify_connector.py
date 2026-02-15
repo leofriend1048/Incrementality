@@ -197,11 +197,11 @@ class TestFetchOrders:
 class TestPagination:
     def test_single_page(self):
         c = _make_connector()
-        with patch.object(c.session, "get") as mock_get:
-            mock_get.return_value = _mock_response(SAMPLE_ORDERS)
+        with patch.object(c.session, "request") as mock_request:
+            mock_request.return_value = _mock_response(SAMPLE_ORDERS)
             result = c._get_paginated("orders", {"limit": 250})
             assert len(result) == 5
-            mock_get.assert_called_once()
+            mock_request.assert_called_once()
 
     def test_multi_page(self):
         c = _make_connector()
@@ -211,11 +211,11 @@ class TestPagination:
         )
         page2_resp = _mock_response(SAMPLE_ORDERS_PAGE2)
 
-        with patch.object(c.session, "get") as mock_get:
-            mock_get.side_effect = [page1_resp, page2_resp]
+        with patch.object(c.session, "request") as mock_request:
+            mock_request.side_effect = [page1_resp, page2_resp]
             result = c._get_paginated("orders", {"limit": 250})
             assert len(result) == 6  # 5 from page 1 + 1 from page 2
-            assert mock_get.call_count == 2
+            assert mock_request.call_count == 2
 
 
 class TestDMAggregation:

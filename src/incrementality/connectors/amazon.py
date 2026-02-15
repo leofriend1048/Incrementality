@@ -18,6 +18,7 @@ import requests
 
 from incrementality.config import AmazonConfig
 from incrementality.connectors.geo import zip_to_dma
+from incrementality.connectors.retry import request_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +50,17 @@ class AmazonConnector:
 
     def _refresh_access_token(self) -> str:
         """Get or refresh the LWA access token."""
-        resp = requests.post(_TOKEN_URL, data={
-            "grant_type": "refresh_token",
-            "refresh_token": self.config.refresh_token,
-            "client_id": self.config.client_id,
-            "client_secret": self.config.client_secret,
-        }, timeout=self.DEFAULT_TIMEOUT)
+        token_session = requests.Session()
+        resp = request_with_retry(
+            token_session, "POST", _TOKEN_URL,
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": self.config.refresh_token,
+                "client_id": self.config.client_id,
+                "client_secret": self.config.client_secret,
+            },
+            timeout=self.DEFAULT_TIMEOUT,
+        )
         resp.raise_for_status()
         self._access_token = resp.json()["access_token"]
         self.session.headers.update({
@@ -90,10 +96,16 @@ class AmazonConnector:
             ],
         }
 
-        resp = self.session.post(url, json=payload, timeout=self.DEFAULT_TIMEOUT)
+        resp = request_with_retry(
+            self.session, "POST", url,
+            json=payload, timeout=self.DEFAULT_TIMEOUT,
+        )
         if resp.status_code == 403:
             self._refresh_access_token()
-            resp = self.session.post(url, json=payload, timeout=self.DEFAULT_TIMEOUT)
+            resp = request_with_retry(
+                self.session, "POST", url,
+                json=payload, timeout=self.DEFAULT_TIMEOUT,
+            )
         resp.raise_for_status()
 
         self._rdt_token = resp.json()["restrictedDataToken"]
@@ -105,10 +117,16 @@ class AmazonConnector:
         if not self._access_token:
             self._refresh_access_token()
         url = f"{self.base_url}{path}"
-        resp = self.session.get(url, params=params, timeout=self.DEFAULT_TIMEOUT)
+        resp = request_with_retry(
+            self.session, "GET", url,
+            params=params, timeout=self.DEFAULT_TIMEOUT,
+        )
         if resp.status_code == 403:
             self._refresh_access_token()
-            resp = self.session.get(url, params=params, timeout=self.DEFAULT_TIMEOUT)
+            resp = request_with_retry(
+                self.session, "GET", url,
+                params=params, timeout=self.DEFAULT_TIMEOUT,
+            )
         resp.raise_for_status()
         return resp.json()
 
@@ -127,13 +145,19 @@ class AmazonConnector:
         self.session.headers["x-amz-access-token"] = self._rdt_token
 
         try:
-            resp = self.session.get(url, params=params, timeout=self.DEFAULT_TIMEOUT)
+            resp = request_with_retry(
+                self.session, "GET", url,
+                params=params, timeout=self.DEFAULT_TIMEOUT,
+            )
             if resp.status_code == 403:
                 # RDT may have expired, refresh both tokens
                 self._refresh_access_token()
                 self._get_restricted_data_token()
                 self.session.headers["x-amz-access-token"] = self._rdt_token
-                resp = self.session.get(url, params=params, timeout=self.DEFAULT_TIMEOUT)
+                resp = request_with_retry(
+                    self.session, "GET", url,
+                    params=params, timeout=self.DEFAULT_TIMEOUT,
+                )
             resp.raise_for_status()
             return resp.json()
         finally:

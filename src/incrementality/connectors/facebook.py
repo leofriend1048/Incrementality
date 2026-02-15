@@ -17,6 +17,7 @@ import pandas as pd
 import requests
 
 from incrementality.config import FacebookConfig
+from incrementality.connectors.retry import request_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -646,13 +647,19 @@ class FacebookConnector:
             url = url_or_path
         else:
             url = f"{_GRAPH_API_BASE}/{url_or_path}"
-        resp = self.session.get(url, params=params or {}, timeout=self.DEFAULT_TIMEOUT)
+        resp = request_with_retry(
+            self.session, "GET", url,
+            params=params or {}, timeout=self.DEFAULT_TIMEOUT,
+        )
         resp.raise_for_status()
         return resp.json()
 
     def _post(self, path: str, data: dict[str, Any] | None = None) -> dict:
         url = f"{_GRAPH_API_BASE}/{path}"
-        resp = self.session.post(url, json=data or {}, timeout=self.DEFAULT_TIMEOUT)
+        resp = request_with_retry(
+            self.session, "POST", url,
+            json=data or {}, timeout=self.DEFAULT_TIMEOUT,
+        )
         resp.raise_for_status()
         return resp.json()
 
