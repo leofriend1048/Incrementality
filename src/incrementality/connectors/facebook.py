@@ -56,7 +56,8 @@ _DMA_NAMES: list[tuple[str, list[str]]] = [
              "Cleveland"]),
     # 511 - Washington, DC
     ("511", ["Washington, DC (Hagerstown, MD)", "Washington, DC",
-             "Washington DC (Hagerstown)", "Washington DC"]),
+             "Washington DC (Hagerstown)", "Washington DC",
+             "Washington, DC (Hagrstwn)"]),
     # 512 - Baltimore
     ("512", ["Baltimore, MD", "Baltimore"]),
     # 513 - Flint-Saginaw-Bay City
