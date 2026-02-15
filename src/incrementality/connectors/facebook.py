@@ -569,6 +569,52 @@ _DMA_NAMES: list[tuple[str, list[str]]] = [
     ("868", ["Chico-Redding, CA", "Chico-Redding", "Chico, CA", "Chico"]),
     # 881 - Spokane
     ("881", ["Spokane, WA", "Spokane"]),
+
+    # --- Missing DMA entries (not in original list) ---
+    # 737 - Mankato
+    ("737", ["Mankato, MN", "Mankato"]),
+    # 749 - Laredo
+    ("749", ["Laredo, TX", "Laredo"]),
+    # 767 - Casper-Riverton
+    ("767", ["Casper-Riverton, WY", "Casper-Riverton", "Casper, WY", "Casper"]),
+
+    # --- Meta abbreviated name variants (from actual API responses) ---
+    # Meta truncates long DMA names; these are the exact strings the API returns.
+    ("506", ["Boston (Manchester)"]),
+    ("518", ["Greensboro-H.Point-W.Salem"]),
+    ("534", ["Orlando-Daytona Bch-Melbrn"]),
+    ("539", ["Tampa-St. Pete (Sarasota)"]),
+    ("544", ["Norfolk-Portsmth-Newpt Nws"]),
+    ("545", ["Greenville-N.Bern-Washngtn"]),
+    ("560", ["Raleigh-Durham (Fayetvlle)"]),
+    ("563", ["Grand Rapids-Kalmzoo-B.Crk"]),
+    ("566", ["Harrisburg-Lncstr-Leb-York"]),
+    ("567", ["Greenvll-Spart-Ashevll-And"]),
+    ("570", ["Myrtle Beach-Florence"]),
+    ("574", ["Johnstown-Altoona-St Colge"]),
+    ("577", ["Wilkes Barre-Scranton-Hztn"]),
+    ("630", ["Birmingham (Ann And Tusc)"]),
+    ("632", ["Paducah-Cape Girard-Harsbg"]),
+    ("636", ["Harlingen-Wslco-Brnsvl-Mca"]),
+    ("637", ["Cedar Rapids-Wtrlo-Iwc&Dub"]),
+    ("648", ["Champaign&Sprngfld-Decatur"]),
+    ("670", ["Ft. Smith-Fay-Sprngdl-Rgrs"]),
+    ("673", ["Columbus-Tupelo-W Pnt-Hstn"]),
+    ("682", ["Davenport-R.Island-Moline"]),
+    ("686", ["Mobile-Pensacola (Ft Walt)"]),
+    ("687", ["Minot-Bsmrck-Dcknsn(Wlstn)"]),
+    ("691", ["Huntsville-Decatur (Flor)"]),
+    ("709", ["Tyler-Longview(Lfkn&Ncgd)"]),
+    ("722", ["Lincoln & Hastings-Krny"]),
+    ("725", ["Sioux Falls(Mitchell)"]),
+    ("758", ["Idaho Fals-Pocatllo(Jcksn)"]),
+    ("807", ["San Francisco-Oak-San Jose"]),
+    ("810", ["Yakima-Pasco-Rchlnd-Knnwck"]),
+    ("855", ["Santabarbra-Sanmar-Sanluob"]),
+    ("862", ["Sacramnto-Stkton-Modesto"]),
+
+    # Springfield-Holyoke (MA) — Nielsen DMA 543
+    ("543", ["Springfield-Holyoke"]),
 ]
 
 # Build flat lookup dict from the definition list
