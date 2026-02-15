@@ -181,13 +181,18 @@ def design(
 
         # Show what we got and validate
         if data:
+            pull_errors = getattr(orchestrator, "pull_errors", {})
             for src, df in data.items():
                 if not df.empty:
                     n_dmas = df["dma_code"].nunique() if "dma_code" in df.columns else 0
                     done(f"{src.title()}: [accent]{len(df)}[/accent] rows, "
                          f"[accent]{n_dmas}[/accent] DMAs")
                 else:
-                    warning(f"{src.title()}: no data (check credentials/config)")
+                    error_detail = pull_errors.get(src, "")
+                    if error_detail:
+                        warning(f"{src.title()}: no data — {error_detail}")
+                    else:
+                        warning(f"{src.title()}: no data (check credentials/config)")
 
             # Validate the selected channel has data
             channel_key = channel  # facebook or youtube

@@ -107,10 +107,15 @@ class TestOrchestrator:
             end_date: End date for data pull (default: today).
             ad_channel: If set with campaign_ids, filters ad spend to those campaigns.
             campaign_ids: Campaign IDs to filter ad spend data (requires ad_channel).
+
+        Returns:
+            dict mapping source name to DataFrame. Also populates
+            ``self.pull_errors`` with any error messages keyed by source.
         """
         end = end_date or date.today()
         start = end - timedelta(weeks=lookback_weeks)
         data: dict[str, pd.DataFrame] = {}
+        self.pull_errors: dict[str, str] = {}
 
         # Revenue connectors — always fetch all data
         revenue_connectors = [
@@ -126,6 +131,7 @@ class TestOrchestrator:
         for name, connector, method_name in revenue_connectors:
             if connector is None:
                 data[name] = pd.DataFrame()
+                self.pull_errors[name] = "not configured"
                 continue
 
             logger.info(f"Pulling {name.title()} data: {start} to {end}")
@@ -134,15 +140,18 @@ class TestOrchestrator:
                 data[name] = method(start, end)
                 logger.info(f"  {name.title()}: {len(data[name])} rows fetched")
             except Exception as e:
+                error_msg = f"{type(e).__name__}: {e}"
                 logger.warning(
-                    f"{name.title()} API failed ({type(e).__name__}): {e}. "
+                    f"{name.title()} API failed ({error_msg}). "
                     f"Continuing without {name} data."
                 )
+                self.pull_errors[name] = error_msg
                 data[name] = pd.DataFrame()
 
         for name, connector, method_name in spend_connectors:
             if connector is None:
                 data[name] = pd.DataFrame()
+                self.pull_errors[name] = "not configured"
                 continue
 
             logger.info(f"Pulling {name.title()} data: {start} to {end}")
@@ -159,10 +168,12 @@ class TestOrchestrator:
                     data[name] = method(start, end)
                 logger.info(f"  {name.title()}: {len(data[name])} rows fetched")
             except Exception as e:
+                error_msg = f"{type(e).__name__}: {e}"
                 logger.warning(
-                    f"{name.title()} API failed ({type(e).__name__}): {e}. "
+                    f"{name.title()} API failed ({error_msg}). "
                     f"Continuing without {name} data."
                 )
+                self.pull_errors[name] = error_msg
                 data[name] = pd.DataFrame()
 
         # Cache to disk
