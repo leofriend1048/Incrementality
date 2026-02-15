@@ -305,6 +305,56 @@ class TestOrchestrator:
         )
         return design
 
+    def update_holdout(self, design: TestDesign) -> tuple[TestDesign, int]:
+        """Re-scan for new ad sets and apply holdout exclusions to any missing them.
+
+        For channel-level tests only. Call this after creating new campaigns
+        or ad sets during a running test to ensure they also exclude holdout DMAs.
+
+        Returns:
+            Tuple of (updated design, number of newly excluded ad sets).
+        """
+        if design.status != TestStatus.RUNNING:
+            raise ValueError(
+                f"Test {design.test_id} is not running (status: {design.status}). "
+                f"Only running tests can be updated."
+            )
+
+        if design.test_scope != TestScope.CHANNEL:
+            raise ValueError(
+                "Holdout update is only for channel-level tests. "
+                "Campaign-level tests target specific campaigns."
+            )
+
+        holdout_dmas = design.holdout_cell.dma_codes
+        already_excluded = set(design.original_targeting.keys())
+
+        if design.ad_channel == AdChannel.FACEBOOK:
+            if not self._facebook:
+                raise ValueError("Facebook not configured.")
+            new_targeting, n_new = self._facebook.deploy_holdout_update(
+                holdout_dmas, already_excluded,
+            )
+            # Merge new ad sets into original_targeting so revert catches them
+            design.original_targeting.update(new_targeting)
+        elif design.ad_channel == AdChannel.YOUTUBE:
+            if not self._youtube:
+                raise ValueError("YouTube/Google Ads not configured.")
+            new_targeting, n_new = self._youtube.deploy_holdout_update(
+                holdout_dmas, already_excluded,
+            )
+            design.original_targeting.update(new_targeting)
+        else:
+            raise ValueError(f"Unsupported ad channel: {design.ad_channel}")
+
+        self._save_design(design)
+
+        logger.info(
+            f"Holdout update: {n_new} new ad sets excluded. "
+            f"Total tracked: {len(design.original_targeting)}."
+        )
+        return design, n_new
+
     def revert_test(self, design: TestDesign) -> TestDesign:
         """Revert holdout DMA exclusions, restoring original targeting.
 

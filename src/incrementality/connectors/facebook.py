@@ -434,6 +434,78 @@ class FacebookConnector:
         )
         return original_targeting
 
+    def deploy_holdout_update(
+        self,
+        holdout_dma_codes: list[str],
+        already_excluded_adset_ids: set[str],
+    ) -> tuple[dict[str, dict], int]:
+        """Scan all active ad sets and apply holdout exclusions to any new ones.
+
+        Only processes ad sets NOT already in already_excluded_adset_ids.
+        This catches new campaigns/ad sets created after the initial deploy.
+
+        Args:
+            holdout_dma_codes: Nielsen DMA codes to exclude.
+            already_excluded_adset_ids: Ad set IDs already tracked from deploy.
+
+        Returns:
+            Tuple of (new original_targeting entries, count of newly updated ad sets).
+        """
+        all_campaign_ids = self.get_all_campaign_ids()
+        exclusion_spec = get_exclusion_targeting_spec(holdout_dma_codes)
+        new_targeting: dict[str, dict] = {}
+        n_new = 0
+
+        for campaign_id in all_campaign_ids:
+            adsets = self.get_active_adsets(campaign_id)
+            for adset in adsets:
+                adset_id = adset["id"]
+                if adset_id in already_excluded_adset_ids:
+                    continue  # Already managed
+
+                current_targeting = adset.get("targeting", {})
+
+                # Check if holdout DMAs are already excluded
+                existing_excluded = current_targeting.get("excluded_geo_locations", {})
+                existing_keys = {
+                    m.get("key") for m in existing_excluded.get("geo_markets", [])
+                }
+                holdout_set = set(holdout_dma_codes)
+                if holdout_set.issubset(existing_keys):
+                    continue  # Already has all exclusions
+
+                # Save original and apply exclusions
+                new_targeting[adset_id] = {
+                    "targeting": current_targeting.copy(),
+                    "campaign_id": campaign_id,
+                    "adset_name": adset.get("name", ""),
+                }
+
+                updated_targeting = current_targeting.copy()
+                existing_markets = existing_excluded.get("geo_markets", [])
+                new_markets = [
+                    m for m in exclusion_spec["excluded_geo_locations"]["geo_markets"]
+                    if m["key"] not in existing_keys
+                ]
+                updated_targeting["excluded_geo_locations"] = {
+                    "geo_markets": existing_markets + new_markets,
+                }
+
+                self._post(adset_id, data={
+                    "targeting": json.dumps(updated_targeting),
+                })
+                n_new += 1
+                logger.info(
+                    f"  NEW ad set {adset_id} ({adset.get('name', '')}): "
+                    f"excluded {len(new_markets)} holdout DMAs"
+                )
+
+        logger.info(
+            f"Holdout update: scanned {len(all_campaign_ids)} campaigns, "
+            f"found {n_new} new ad sets to exclude."
+        )
+        return new_targeting, n_new
+
     def revert_holdout(self, original_targeting: dict[str, dict]) -> int:
         """Revert ad sets back to their pre-test targeting.
 

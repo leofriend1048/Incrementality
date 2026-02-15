@@ -283,6 +283,83 @@ class YouTubeConnector:
         logger.info(f"Deployed {total} DMA exclusions across {len(campaign_ids)} campaigns")
         return created_criteria
 
+    def deploy_holdout_update(
+        self,
+        holdout_dma_codes: list[str],
+        already_excluded_campaign_ids: set[str],
+    ) -> tuple[dict[str, list[str]], int]:
+        """Scan all VIDEO campaigns and apply holdout exclusions to any new ones.
+
+        Only processes campaigns NOT already in already_excluded_campaign_ids.
+
+        Args:
+            holdout_dma_codes: Nielsen DMA codes to exclude.
+            already_excluded_campaign_ids: Campaign IDs already tracked.
+
+        Returns:
+            Tuple of (new criteria mapping, count of newly excluded criteria).
+        """
+        client = self._get_client()
+        campaign_service = client.get_service("CampaignService")
+        criterion_service = client.get_service("CampaignCriterionService")
+
+        all_campaign_ids = self.get_all_campaign_ids()
+        new_criteria: dict[str, list[str]] = {}
+        n_new = 0
+
+        for campaign_id in all_campaign_ids:
+            if campaign_id in already_excluded_campaign_ids:
+                continue  # Already managed
+
+            existing = self.get_campaign_geo_criteria(campaign_id)
+            existing_constants = {
+                c["geo_target_constant"] for c in existing if c["negative"]
+            }
+
+            operations = []
+            for dma_code in holdout_dma_codes:
+                google_geo_id = _dma_to_google_geo_id(dma_code)
+                if not google_geo_id:
+                    continue
+
+                geo_constant = client.get_service(
+                    "GeoTargetConstantService"
+                ).geo_target_constant_path(google_geo_id)
+
+                if geo_constant in existing_constants:
+                    continue
+
+                operation = client.get_type("CampaignCriterionOperation")
+                criterion = operation.create
+                criterion.campaign = campaign_service.campaign_path(
+                    self.config.customer_id, campaign_id,
+                )
+                criterion.location.geo_target_constant = geo_constant
+                criterion.negative = True
+                operations.append(operation)
+
+            if operations:
+                response = criterion_service.mutate_campaign_criteria(
+                    customer_id=self.config.customer_id,
+                    operations=operations,
+                )
+                new_criteria[campaign_id] = [
+                    r.resource_name for r in response.results
+                ]
+                n_new += len(new_criteria[campaign_id])
+                logger.info(
+                    f"NEW campaign {campaign_id}: excluded "
+                    f"{len(new_criteria[campaign_id])} holdout DMAs"
+                )
+            else:
+                new_criteria[campaign_id] = []
+
+        logger.info(
+            f"Holdout update: scanned {len(all_campaign_ids)} campaigns, "
+            f"found {n_new} new exclusions to apply."
+        )
+        return new_criteria, n_new
+
     def revert_holdout(self, created_criteria: dict[str, list[str]]) -> int:
         """Remove holdout DMA exclusions added by deploy_holdout().
 

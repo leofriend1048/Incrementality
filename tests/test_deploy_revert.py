@@ -243,3 +243,171 @@ class TestExclusionSpec:
     def test_empty_holdout(self):
         spec = get_exclusion_targeting_spec([])
         assert spec["excluded_geo_locations"]["geo_markets"] == []
+
+
+# ---------------------------------------------------------------------------
+# Holdout Update Tests
+# ---------------------------------------------------------------------------
+
+class TestFacebookHoldoutUpdate:
+    def test_update_finds_new_adsets(self):
+        """Update should find and exclude new ad sets created after deploy."""
+        c = _make_fb_connector()
+
+        # Simulate: 2 campaigns, camp_001 has 1 existing + 1 new ad set
+        campaigns_response = {"data": [{"id": "camp_001"}, {"id": "camp_002"}]}
+
+        adsets_camp1 = {
+            "data": [
+                {
+                    "id": "adset_001",  # Already tracked
+                    "name": "Original Ad Set",
+                    "status": "ACTIVE",
+                    "targeting": {},
+                },
+                {
+                    "id": "adset_NEW",  # New — not tracked
+                    "name": "New Ad Set",
+                    "status": "ACTIVE",
+                    "targeting": {"geo_locations": {"countries": ["US"]}},
+                },
+            ],
+        }
+        adsets_camp2 = {"data": []}  # No ad sets
+
+        with patch.object(c, "_get") as mock_get, \
+             patch.object(c, "_post") as mock_post:
+            mock_get.side_effect = [campaigns_response, adsets_camp1, adsets_camp2]
+            mock_post.return_value = {"success": True}
+
+            new_targeting, n_new = c.deploy_holdout_update(
+                holdout_dma_codes=["501", "803"],
+                already_excluded_adset_ids={"adset_001"},
+            )
+
+        # Should have found 1 new ad set
+        assert n_new == 1
+        assert "adset_NEW" in new_targeting
+        assert new_targeting["adset_NEW"]["campaign_id"] == "camp_001"
+
+        # Should have called _post once (only for the new ad set)
+        assert mock_post.call_count == 1
+
+    def test_update_skips_already_excluded(self):
+        """Update should not re-process already-tracked ad sets."""
+        c = _make_fb_connector()
+
+        campaigns_response = {"data": [{"id": "camp_001"}]}
+        adsets_response = {
+            "data": [
+                {
+                    "id": "adset_001",
+                    "name": "Already Tracked",
+                    "status": "ACTIVE",
+                    "targeting": {},
+                },
+            ],
+        }
+
+        with patch.object(c, "_get") as mock_get, \
+             patch.object(c, "_post") as mock_post:
+            mock_get.side_effect = [campaigns_response, adsets_response]
+            mock_post.return_value = {"success": True}
+
+            new_targeting, n_new = c.deploy_holdout_update(
+                holdout_dma_codes=["501"],
+                already_excluded_adset_ids={"adset_001"},
+            )
+
+        assert n_new == 0
+        assert len(new_targeting) == 0
+        assert mock_post.call_count == 0
+
+    def test_update_skips_if_already_has_exclusions(self):
+        """If a new ad set already has the right exclusions, skip it."""
+        c = _make_fb_connector()
+
+        campaigns_response = {"data": [{"id": "camp_001"}]}
+        adsets_response = {
+            "data": [
+                {
+                    "id": "adset_NEW",
+                    "name": "Has Exclusions Already",
+                    "status": "ACTIVE",
+                    "targeting": {
+                        "excluded_geo_locations": {
+                            "geo_markets": [
+                                {"key": "501", "market_type": "dma"},
+                                {"key": "803", "market_type": "dma"},
+                            ],
+                        },
+                    },
+                },
+            ],
+        }
+
+        with patch.object(c, "_get") as mock_get, \
+             patch.object(c, "_post") as mock_post:
+            mock_get.side_effect = [campaigns_response, adsets_response]
+
+            new_targeting, n_new = c.deploy_holdout_update(
+                holdout_dma_codes=["501", "803"],
+                already_excluded_adset_ids=set(),
+            )
+
+        assert n_new == 0
+        assert mock_post.call_count == 0
+
+
+class TestOrchestratorUpdateHoldout:
+    def test_update_requires_running_status(self):
+        """update_holdout should reject non-running tests."""
+        from incrementality.orchestrator import TestOrchestrator
+        from incrementality.config import Config
+        from incrementality.models import (
+            TestDesign, TestScope, AdChannel, MeasurementScope,
+            TestCell, CellType, TestStatus,
+        )
+
+        config = Config()
+        orch = TestOrchestrator(config)
+
+        design = TestDesign(
+            test_id="test_123",
+            name="Test",
+            test_scope=TestScope.CHANNEL,
+            ad_channel=AdChannel.FACEBOOK,
+            measurement_scope=MeasurementScope.SHOPIFY_ONLY,
+            treatment_cell=TestCell(cell_type=CellType.TREATMENT, dma_codes=["501"]),
+            holdout_cell=TestCell(cell_type=CellType.HOLDOUT, dma_codes=["803"]),
+            status=TestStatus.DESIGNED,  # Not running
+        )
+
+        with pytest.raises(ValueError, match="not running"):
+            orch.update_holdout(design)
+
+    def test_update_rejects_campaign_level(self):
+        """update_holdout should reject campaign-level tests."""
+        from incrementality.orchestrator import TestOrchestrator
+        from incrementality.config import Config
+        from incrementality.models import (
+            TestDesign, TestScope, AdChannel, MeasurementScope,
+            TestCell, CellType, TestStatus,
+        )
+
+        config = Config()
+        orch = TestOrchestrator(config)
+
+        design = TestDesign(
+            test_id="test_123",
+            name="Test",
+            test_scope=TestScope.CAMPAIGN,
+            ad_channel=AdChannel.FACEBOOK,
+            measurement_scope=MeasurementScope.SHOPIFY_ONLY,
+            treatment_cell=TestCell(cell_type=CellType.TREATMENT, dma_codes=["501"]),
+            holdout_cell=TestCell(cell_type=CellType.HOLDOUT, dma_codes=["803"]),
+            status=TestStatus.RUNNING,
+        )
+
+        with pytest.raises(ValueError, match="channel-level"):
+            orch.update_holdout(design)

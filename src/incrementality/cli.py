@@ -314,12 +314,15 @@ def analyze(ctx: click.Context, test_id: str, data_dir: str | None,
 @click.option("--test-id", required=True, help="Test ID to deploy")
 @click.option("--campaigns", default=None,
               help="Comma-separated campaign IDs (overrides test design)")
+@click.option("--update", is_flag=True,
+              help="Re-scan for new ad sets and apply holdout exclusions (channel-level only)")
 @click.option("--yes", is_flag=True, help="Skip confirmation prompt")
 @click.pass_context
 def execute(
     ctx: click.Context,
     test_id: str,
     campaigns: str | None,
+    update: bool,
     yes: bool,
 ) -> None:
     """Deploy holdout DMA exclusions to the ad platform.
@@ -329,6 +332,9 @@ def execute(
 
     For channel-level tests: applies to ALL active campaigns.
     For campaign-level tests: applies to the specified campaigns.
+
+    Use --update on a running test to catch new campaigns/ad sets
+    created after the initial deployment.
 
     Original targeting is saved so it can be reverted with:
         incrementality revert --test-id <test-id>
@@ -350,10 +356,60 @@ def execute(
         spacer()
         sys.exit(1)
 
+    # --- Update mode: re-scan for new ad sets on a running test ---
+    if update:
+        if test_design.status != "running":
+            fail("--update only works on running tests.")
+            info("Deploy first with [accent]incrementality execute "
+                 f"--test-id {test_id}[/accent]")
+            spacer()
+            sys.exit(1)
+
+        holdout_dmas = test_design.holdout_cell.dma_codes
+        n_tracked = len(test_design.original_targeting)
+
+        section("Holdout Update")
+        kv("Channel", f"[accent]{test_design.ad_channel.value.title()}[/accent]")
+        kv("Holdout DMAs", f"[heading]{len(holdout_dmas)}[/heading]")
+        kv("Currently tracked", f"{n_tracked} ad sets")
+        spacer()
+
+        info("Scanning for new campaigns/ad sets missing holdout exclusions...")
+        spacer()
+
+        if not yes:
+            if not click.confirm(click.style(
+                "    Apply holdout exclusions to any new ad sets?", bold=True,
+            )):
+                info("Aborted.")
+                spacer()
+                return
+
+        try:
+            with step("Scanning and updating new ad sets"):
+                test_design, n_new = orchestrator.update_holdout(test_design)
+        except Exception as e:
+            fail(f"Update failed: {e}")
+            spacer()
+            sys.exit(1)
+
+        spacer()
+        if n_new > 0:
+            done(f"Applied holdout exclusions to [accent]{n_new}[/accent] new ad sets")
+        else:
+            done("No new ad sets found — all are already excluded")
+        kv("Total tracked", f"{len(test_design.original_targeting)} ad sets")
+        spacer()
+        return
+
+    # --- Normal deploy mode ---
     if test_design.status == "running":
         warning("This test is already deployed!")
-        info("Run [accent]incrementality revert --test-id "
-             f"{test_id}[/accent] to revert first.")
+        info("To catch new ad sets, run:")
+        info(f"  [accent]incrementality execute --test-id {test_id} --update[/accent]")
+        spacer()
+        info("To fully re-deploy, revert first:")
+        info(f"  [accent]incrementality revert --test-id {test_id}[/accent]")
         spacer()
         sys.exit(1)
 
@@ -401,6 +457,9 @@ def execute(
     spacer()
     info("When the test ends, revert targeting with:")
     info(f"  [accent]incrementality revert --test-id {test_id}[/accent]")
+    spacer()
+    info("If you create new campaigns during the test, run:")
+    info(f"  [accent]incrementality execute --test-id {test_id} --update[/accent]")
     spacer()
 
 
