@@ -308,8 +308,12 @@ class TestOrchestrator:
     def update_holdout(self, design: TestDesign) -> tuple[TestDesign, int]:
         """Re-scan for new ad sets and apply holdout exclusions to any missing them.
 
-        For channel-level tests only. Call this after creating new campaigns
-        or ad sets during a running test to ensure they also exclude holdout DMAs.
+        Works for both channel-level and campaign-level tests:
+        - Channel-level: scans ALL active campaigns for new ad sets.
+        - Campaign-level: scans only the test's specified campaigns for new ad sets.
+
+        Call this after creating new campaigns or ad sets during a running test
+        to ensure they also exclude holdout DMAs.
 
         Returns:
             Tuple of (updated design, number of newly excluded ad sets).
@@ -320,20 +324,19 @@ class TestOrchestrator:
                 f"Only running tests can be updated."
             )
 
-        if design.test_scope != TestScope.CHANNEL:
-            raise ValueError(
-                "Holdout update is only for channel-level tests. "
-                "Campaign-level tests target specific campaigns."
-            )
-
         holdout_dmas = design.holdout_cell.dma_codes
         already_excluded = set(design.original_targeting.keys())
+
+        # For campaign-level tests, only scan the specified campaigns
+        campaign_ids = None
+        if design.test_scope == TestScope.CAMPAIGN and design.campaign_ids:
+            campaign_ids = design.campaign_ids
 
         if design.ad_channel == AdChannel.FACEBOOK:
             if not self._facebook:
                 raise ValueError("Facebook not configured.")
             new_targeting, n_new = self._facebook.deploy_holdout_update(
-                holdout_dmas, already_excluded,
+                holdout_dmas, already_excluded, campaign_ids,
             )
             # Merge new ad sets into original_targeting so revert catches them
             design.original_targeting.update(new_targeting)
@@ -341,7 +344,7 @@ class TestOrchestrator:
             if not self._youtube:
                 raise ValueError("YouTube/Google Ads not configured.")
             new_targeting, n_new = self._youtube.deploy_holdout_update(
-                holdout_dmas, already_excluded,
+                holdout_dmas, already_excluded, campaign_ids,
             )
             design.original_targeting.update(new_targeting)
         else:

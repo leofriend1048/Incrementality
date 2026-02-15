@@ -386,8 +386,9 @@ class TestOrchestratorUpdateHoldout:
         with pytest.raises(ValueError, match="not running"):
             orch.update_holdout(design)
 
-    def test_update_rejects_campaign_level(self):
-        """update_holdout should reject campaign-level tests."""
+    def test_update_works_for_campaign_level(self):
+        """update_holdout should scope to campaign IDs for campaign-level tests."""
+        from unittest.mock import patch, MagicMock
         from incrementality.orchestrator import TestOrchestrator
         from incrementality.config import Config
         from incrementality.models import (
@@ -403,11 +404,20 @@ class TestOrchestratorUpdateHoldout:
             name="Test",
             test_scope=TestScope.CAMPAIGN,
             ad_channel=AdChannel.FACEBOOK,
+            campaign_ids=["camp_001", "camp_002"],
             measurement_scope=MeasurementScope.SHOPIFY_ONLY,
             treatment_cell=TestCell(cell_type=CellType.TREATMENT, dma_codes=["501"]),
             holdout_cell=TestCell(cell_type=CellType.HOLDOUT, dma_codes=["803"]),
             status=TestStatus.RUNNING,
         )
 
-        with pytest.raises(ValueError, match="channel-level"):
+        mock_fb = MagicMock()
+        mock_fb.deploy_holdout_update.return_value = ({}, 0)
+        orch._facebook = mock_fb
+
+        with patch.object(orch, "_save_design"):
             orch.update_holdout(design)
+
+        # Should have passed the campaign_ids to the connector
+        call_args = mock_fb.deploy_holdout_update.call_args
+        assert call_args[0][2] == ["camp_001", "camp_002"]

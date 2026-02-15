@@ -287,14 +287,16 @@ class YouTubeConnector:
         self,
         holdout_dma_codes: list[str],
         already_excluded_campaign_ids: set[str],
+        campaign_ids: list[str] | None = None,
     ) -> tuple[dict[str, list[str]], int]:
-        """Scan all VIDEO campaigns and apply holdout exclusions to any new ones.
+        """Scan VIDEO campaigns and apply holdout exclusions to any new ones.
 
         Only processes campaigns NOT already in already_excluded_campaign_ids.
 
         Args:
             holdout_dma_codes: Nielsen DMA codes to exclude.
             already_excluded_campaign_ids: Campaign IDs already tracked.
+            campaign_ids: Specific campaigns to scan (None = all VIDEO campaigns).
 
         Returns:
             Tuple of (new criteria mapping, count of newly excluded criteria).
@@ -303,7 +305,7 @@ class YouTubeConnector:
         campaign_service = client.get_service("CampaignService")
         criterion_service = client.get_service("CampaignCriterionService")
 
-        all_campaign_ids = self.get_all_campaign_ids()
+        all_campaign_ids = campaign_ids or self.get_all_campaign_ids()
         new_criteria: dict[str, list[str]] = {}
         n_new = 0
 

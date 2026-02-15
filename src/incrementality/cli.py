@@ -315,7 +315,7 @@ def analyze(ctx: click.Context, test_id: str, data_dir: str | None,
 @click.option("--campaigns", default=None,
               help="Comma-separated campaign IDs (overrides test design)")
 @click.option("--update", is_flag=True,
-              help="Re-scan for new ad sets and apply holdout exclusions (channel-level only)")
+              help="Re-scan for new ad sets and apply holdout exclusions")
 @click.option("--yes", is_flag=True, help="Skip confirmation prompt")
 @click.pass_context
 def execute(

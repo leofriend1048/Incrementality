@@ -438,8 +438,9 @@ class FacebookConnector:
         self,
         holdout_dma_codes: list[str],
         already_excluded_adset_ids: set[str],
+        campaign_ids: list[str] | None = None,
     ) -> tuple[dict[str, dict], int]:
-        """Scan all active ad sets and apply holdout exclusions to any new ones.
+        """Scan ad sets and apply holdout exclusions to any new ones.
 
         Only processes ad sets NOT already in already_excluded_adset_ids.
         This catches new campaigns/ad sets created after the initial deploy.
@@ -447,11 +448,12 @@ class FacebookConnector:
         Args:
             holdout_dma_codes: Nielsen DMA codes to exclude.
             already_excluded_adset_ids: Ad set IDs already tracked from deploy.
+            campaign_ids: Specific campaigns to scan (None = all active campaigns).
 
         Returns:
             Tuple of (new original_targeting entries, count of newly updated ad sets).
         """
-        all_campaign_ids = self.get_all_campaign_ids()
+        all_campaign_ids = campaign_ids or self.get_all_campaign_ids()
         exclusion_spec = get_exclusion_targeting_spec(holdout_dma_codes)
         new_targeting: dict[str, dict] = {}
         n_new = 0
