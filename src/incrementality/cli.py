@@ -94,7 +94,13 @@ def cli(ctx: click.Context, config_path: str | None, verbose: bool) -> None:
     """
     _setup_logging(verbose)
     ctx.ensure_object(dict)
-    if config_path:
+    if not config_path:
+        # Auto-discover config.yaml in current directory
+        for candidate in ["config.yaml", "config.yml"]:
+            if Path(candidate).exists():
+                config_path = candidate
+                break
+    if config_path and Path(config_path).exists():
         ctx.obj["config"] = Config.from_yaml(config_path)
     else:
         ctx.obj["config"] = Config()
