@@ -20,7 +20,7 @@ from incrementality.config import FacebookConfig
 
 logger = logging.getLogger(__name__)
 
-_GRAPH_API_BASE = "https://graph.facebook.com/v19.0"
+_GRAPH_API_BASE = "https://graph.facebook.com/v22.0"
 
 # Meta DMA name → Nielsen DMA code mapping
 # Meta returns DMA names like "New York, NY" when breakdowns=dma
@@ -159,8 +159,12 @@ class FacebookConnector:
         self.session = requests.Session()
         self.session.params = {"access_token": config.access_token}  # type: ignore
 
-    def _get(self, path: str, params: dict[str, Any] | None = None) -> dict:
-        url = f"{_GRAPH_API_BASE}/{path}"
+    def _get(self, url_or_path: str, params: dict[str, Any] | None = None) -> dict:
+        # If it's already a full URL (e.g. pagination next link), use it directly
+        if url_or_path.startswith("https://"):
+            url = url_or_path
+        else:
+            url = f"{_GRAPH_API_BASE}/{url_or_path}"
         resp = self.session.get(url, params=params or {}, timeout=self.DEFAULT_TIMEOUT)
         resp.raise_for_status()
         return resp.json()
@@ -245,12 +249,12 @@ class FacebookConnector:
                     })
                 else:
                     unmapped_dmas.add(dma_name)
-            # Pagination
+            # Pagination — Meta returns a full URL for the next page
             paging = data.get("paging", {})
             next_url = paging.get("next")
             if next_url:
-                path = next_url.replace(_GRAPH_API_BASE + "/", "")
-                params = {}
+                path = next_url  # Pass full URL; _get() handles it
+                params = {}  # All params are embedded in the URL
             else:
                 path = None  # type: ignore
 
