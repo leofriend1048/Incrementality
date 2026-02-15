@@ -323,7 +323,7 @@ class TestConfigValidation:
     def test_valid_config(self):
         c = StatisticalConfig()
         assert c.significance_level == 0.05
-        assert c.target_power == 0.90
+        assert c.target_power == 0.80
 
     def test_invalid_alpha_rejected(self):
         with pytest.raises(Exception):

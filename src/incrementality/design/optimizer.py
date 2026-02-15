@@ -168,6 +168,10 @@ def determine_optimal_holdout_size(
     best_mde = float("inf")
     best_score = -float("inf")
 
+    # Evaluate MDE at the max test duration to find a design that can actually
+    # achieve an actionable MDE within the allowed test window.
+    eval_duration = config.max_test_duration_weeks
+
     for n_h in range(min_holdout, max_holdout + 1):
         n_t = total_dmas - n_h
         if n_t < config.min_dmas_per_cell:
@@ -175,15 +179,19 @@ def determine_optimal_holdout_size(
 
         mde = compute_mde(
             variance_estimate, n_t, n_h,
-            duration_weeks=4,
+            duration_weeks=eval_duration,
             alpha=config.significance_level,
             power=config.target_power,
         )
 
+        # Score: strongly favor lower MDE, lightly penalize holdout size,
+        # and prefer staying near the target holdout fraction.
+        mde_score = max(0, 1 - mde / target_mde)
         holdout_penalty = n_h / total_dmas
-        mde_score = max(0, 1 - mde / 0.30)
+        # Proximity bonus: prefer holdout sizes near target_holdout_fraction
+        target_distance = abs(n_h - target_holdout) / total_dmas
 
-        score = 0.7 * mde_score - 0.3 * holdout_penalty
+        score = 0.8 * mde_score - 0.1 * holdout_penalty - 0.1 * target_distance
 
         if score > best_score:
             best_score = score
@@ -193,7 +201,7 @@ def determine_optimal_holdout_size(
     n_treatment = total_dmas - best_n_holdout
     logger.info(
         f"Optimal design: {n_treatment} treatment, {best_n_holdout} holdout "
-        f"(MDE={best_mde:.1%} at 4 weeks)"
+        f"(MDE={best_mde:.1%} at {eval_duration} weeks)"
     )
     return n_treatment, best_n_holdout
 

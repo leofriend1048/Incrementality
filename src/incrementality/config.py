@@ -44,7 +44,7 @@ class YouTubeConfig(BaseModel):
 class StatisticalConfig(BaseModel):
     """Statistical parameters for test design."""
     significance_level: float = 0.05  # Alpha
-    target_power: float = 0.90  # 1 - Beta
+    target_power: float = 0.80  # 1 - Beta
     min_test_duration_weeks: int = 2
     max_test_duration_weeks: int = 12
     default_lookback_weeks: int = 12
