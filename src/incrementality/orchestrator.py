@@ -29,6 +29,7 @@ from incrementality.analysis.estimators import (
     run_ensemble,
 )
 from incrementality.analysis.iroas import compute_iroas
+from incrementality.analysis.spend_response import estimate_spend_response
 from incrementality.analysis.validation import run_full_validation
 from incrementality.analysis.winsorize import (
     compare_winsorized_results,
@@ -587,6 +588,28 @@ class TestOrchestrator:
             attributed_conversions=attributed_conversions,
         )
 
+        # --- Step 5b: Spend response curve ---
+        spend_response_data: dict = {}
+        try:
+            logger.info("Estimating spend response curve...")
+            causal_iroas = iroas.iroas if iroas.iroas > 0 else None
+            spend_response = estimate_spend_response(
+                pre_data, post_data, ad_spend_data,
+                treatment_dmas, holdout_dmas,
+                causal_iroas=causal_iroas,
+                revenue_col=revenue_col,
+            )
+            if spend_response is not None:
+                from dataclasses import asdict
+                spend_response_data = asdict(spend_response)
+                logger.info(
+                    f"Spend response: optimal=${spend_response.optimal_spend:,.0f}/day "
+                    f"(current=${spend_response.current_spend:,.0f}/day, "
+                    f"{spend_response.spend_change_direction})"
+                )
+        except Exception as e:
+            logger.warning(f"Spend response estimation failed: {e}")
+
         # --- Step 6: Cross-platform incrementality ---
         shopify_inc = None
         amazon_inc = None
@@ -635,6 +658,7 @@ class TestOrchestrator:
         report.winsorized_comparison = winsorized_comparison
         report.anomaly_warnings = anomaly_warnings
         report.anomaly_blockers = anomaly_blockers
+        report.spend_response = spend_response_data
 
         # Print and save
         print_report(report)

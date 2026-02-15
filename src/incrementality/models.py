@@ -244,6 +244,8 @@ class TestReport(BaseModel):
     # Anomaly detection (new)
     anomaly_warnings: list[str] = Field(default_factory=list)
     anomaly_blockers: list[str] = Field(default_factory=list)
+    # Spend response curve (populated when ad spend data available)
+    spend_response: dict = Field(default_factory=dict)
     # Recommendations
     recommendations: list[str] = Field(default_factory=list)
     # Metadata

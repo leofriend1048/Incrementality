@@ -242,6 +242,10 @@ def print_report(report: TestReport) -> None:
         kv("Amazon Incremental", money(iroas.amazon_incremental_revenue))
         kv("Amazon iROAS", f"{iroas.amazon_iroas:.2f}x")
 
+    # ── Spend Response Curve ──
+    if report.spend_response:
+        _print_spend_response(report.spend_response)
+
     # ── Revenue Summary ──
     section("Revenue Summary")
 
@@ -379,6 +383,44 @@ def _print_validation(report: TestReport) -> None:
             console.print(f"    [warn]⚠[/warn]  {w}")
 
     spacer()
+
+
+def _print_spend_response(sr: dict) -> None:
+    """Print spend response curve analysis."""
+    section("Spend Response Curve")
+
+    kv("Current Daily Spend", money(sr.get("current_spend", 0)))
+    kv("Current Marginal ROAS", f"${sr.get('current_marginal_roas', 0):.2f}")
+    spacer()
+    kv("Optimal Daily Spend", money(sr.get("optimal_spend", 0)))
+    kv("Optimal iROAS", f"${sr.get('optimal_iroas', 0):.2f}")
+
+    lower = sr.get("optimal_spend_lower", 0)
+    upper = sr.get("optimal_spend_upper", 0)
+    if lower > 0 and upper > 0:
+        kv("Optimal Spend 95% CI", f"[muted][${lower:,.0f}, ${upper:,.0f}][/muted]")
+
+    spacer()
+    direction = sr.get("spend_change_direction", "")
+    pct = sr.get("spend_change_pct", 0)
+    if direction == "decrease":
+        kv("Recommendation", f"[bad]Decrease spend {pct:+.0f}%[/bad]")
+    elif direction == "increase":
+        kv("Recommendation", f"[ok]Increase spend {pct:+.0f}%[/ok]")
+    else:
+        kv("Recommendation", f"[ok]Maintain current spend[/ok]")
+
+    rec = sr.get("recommendation", "")
+    if rec:
+        console.print(f"    [muted]{rec}[/muted]")
+
+    spacer()
+    n_dmas = sr.get("n_dmas_used", 0)
+    r_sq = sr.get("r_squared", 0)
+    calibrated = sr.get("calibrated", False)
+    kv("Fit Quality",
+       f"R\u00b2={r_sq:.3f}, {n_dmas} DMAs"
+       f"{', calibrated to causal iROAS' if calibrated else ''}")
 
 
 # ── File Output ───────────────────────────────────────────────────────────────
