@@ -219,6 +219,11 @@ def match_dmas_rerandomization(
     best_holdout = None
     indices = np.arange(n_total)
 
+    # Track best balanced (passes threshold) and best overall (fallback)
+    best_balanced_score = -1.0
+    best_balanced_treatment = None
+    best_balanced_holdout = None
+
     for _ in range(n_iterations):
         np.random.shuffle(indices)
         holdout_idx = indices[:n_holdout]
@@ -229,19 +234,32 @@ def match_dmas_rerandomization(
 
         score, smds = compute_balance_score(treatment_df, holdout_df, available_covs)
 
-        # Check if all SMDs are below threshold
+        # Reject assignments where any SMD exceeds the threshold
+        # (Morgan & Rubin 2012: only accept balanced randomizations)
         if smds and max(smds.values()) > balance_threshold:
-            # Only accept if better than current best
+            # Track as fallback in case no assignment passes the threshold
             if score > best_score:
                 best_score = score
                 best_treatment = treatment_df["dma_code"].tolist()
                 best_holdout = holdout_df["dma_code"].tolist()
             continue
 
-        if score > best_score:
-            best_score = score
-            best_treatment = treatment_df["dma_code"].tolist()
-            best_holdout = holdout_df["dma_code"].tolist()
+        # This assignment passes the balance threshold — track separately
+        if score > best_balanced_score:
+            best_balanced_score = score
+            best_balanced_treatment = treatment_df["dma_code"].tolist()
+            best_balanced_holdout = holdout_df["dma_code"].tolist()
+
+    # Prefer balanced assignments; fall back to best overall if none passed
+    if best_balanced_treatment is not None:
+        best_treatment = best_balanced_treatment
+        best_holdout = best_balanced_holdout
+        best_score = best_balanced_score
+    elif best_treatment is not None:
+        logger.warning(
+            f"No assignment passed balance threshold ({balance_threshold}) "
+            f"in {n_iterations} iterations. Using best available (score={best_score:.3f})."
+        )
 
     if best_treatment is None or best_holdout is None:
         raise ValueError("Failed to find a balanced assignment")

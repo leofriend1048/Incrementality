@@ -613,7 +613,7 @@ def demo(
         report.incrementality.lift_upper_ci,
         report.incrementality.is_significant,
     ))
-    error_pct = abs(report.incrementality.relative_lift - true_lift) / true_lift
+    error_pct = abs(report.incrementality.relative_lift - true_lift) / true_lift if true_lift != 0 else 0.0
     kv("Estimation error", f"[muted]{error_pct:.1%}[/muted]")
     spacer()
 
@@ -746,8 +746,8 @@ def _generate_synthetic_data(
                 "date": d.date(),
                 "dma_code": dma.dma_code,
                 "spend": round(spend, 2),
-                "impressions": int(spend * rng.normal(100, 20)),
-                "clicks": int(spend * rng.normal(2, 0.5)),
+                "impressions": max(0, int(spend * rng.normal(100, 20))),
+                "clicks": max(0, int(spend * rng.normal(2, 0.5))),
             })
 
     return {

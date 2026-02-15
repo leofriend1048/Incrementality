@@ -95,24 +95,24 @@ def augmented_synthetic_control(
     scm_synth_post = X_control_post @ scm_weights
 
     # --- Step 2: Ridge augmentation for bias correction ---
-    # Fit ridge on control units' pre-period to predict treated unit
+    # Use RidgeCV to select optimal regularization strength
     ridge = RidgeCV(alphas=np.logspace(-2, 4, 20), fit_intercept=True)
     ridge.fit(X_control_pre, Y_treat_pre)
 
-    ridge_pred_pre = ridge.predict(X_control_pre)
-    ridge_pred_post = ridge.predict(X_control_post)
+    # ASCM counterfactual = SCM + ridge-based bias correction
+    # Ben-Michael et al. (2021): the ridge outcome model estimates the
+    # SCM's bias in the pre-period, then extrapolates that correction
+    # to the post-period. The key is that the bias correction comes from
+    # the pre-period residuals of the SCM, not from replacing SCM entirely.
+    #
+    # Bias correction: ridge predicts what SCM misses in the pre-period
+    scm_residual_pre = Y_treat_pre - scm_synth_pre  # SCM's pre-period errors
+    ridge_bias = Ridge(alpha=ridge.alpha_, fit_intercept=True)
+    ridge_bias.fit(X_control_pre, scm_residual_pre)  # Model the SCM bias
 
-    # ASCM counterfactual = SCM + ridge correction for residual bias
-    scm_residual_pre = Y_treat_pre - scm_synth_pre
-    ridge_residual_pre = Y_treat_pre - ridge_pred_pre
-
-    # Bias correction: average pre-period gap between SCM and actual
-    bias = np.mean(Y_treat_pre - scm_synth_pre)
-
-    # ASCM estimate: use SCM as base, correct with ridge
-    # Following Ben-Michael et al.: augmented estimate blends SCM weights
-    # with outcome model predictions
-    ascm_synth_post = scm_synth_post + (ridge_pred_post - X_control_post @ scm_weights)
+    # Apply bias correction to post-period
+    bias_correction_post = ridge_bias.predict(X_control_post)
+    ascm_synth_post = scm_synth_post + bias_correction_post
 
     # Treatment effect: actual - counterfactual
     gaps_post = Y_treat_post - ascm_synth_post
@@ -122,7 +122,8 @@ def augmented_synthetic_control(
     baseline = float(np.mean(ascm_synth_post))
 
     # --- Pre-period fit quality ---
-    ascm_synth_pre = scm_synth_pre + (ridge_pred_pre - X_control_pre @ scm_weights)
+    bias_correction_pre = ridge_bias.predict(X_control_pre)
+    ascm_synth_pre = scm_synth_pre + bias_correction_pre
     pre_gaps = Y_treat_pre - ascm_synth_pre
     l2_imbalance = float(np.sqrt(np.mean(pre_gaps ** 2)) / np.mean(np.abs(Y_treat_pre)))
     ss_res = np.sum(pre_gaps ** 2)
@@ -178,8 +179,9 @@ def augmented_synthetic_control(
     rel_lower = ci_lower / baseline if baseline > 0 else 0
     rel_upper = ci_upper / baseline if baseline > 0 else 0
 
-    # Cohen's d
-    cohen_d = tau / se if se > 0 else 0
+    # Cohen's d: effect size relative to outcome SD (not SE)
+    outcome_sd = float(np.std(Y_treat_post, ddof=1)) if len(Y_treat_post) > 1 else se
+    cohen_d = tau / outcome_sd if outcome_sd > 0 else 0
 
     # Lift likelihood: P(true lift > 0) — Bayesian interpretation
     lift_likelihood = float(1 - scipy_stats.norm.cdf(0, loc=tau, scale=se)) if se > 0 else 0.5
@@ -264,12 +266,17 @@ def _run_in_space_placebos_ascm(
             if len(Y_pre) < 7 or len(Y_post) < 3:
                 continue
 
-            # Fit SCM + ridge
+            # Fit SCM + ridge bias correction (matching main ASCM)
             w = _fit_scm_weights(Y_pre, X_pre)
-            ridge = RidgeCV(alphas=np.logspace(-2, 4, 10), fit_intercept=True)
-            ridge.fit(X_pre, Y_pre)
+            scm_pre = X_pre @ w
+            scm_post = X_post @ w
 
-            synth_post = X_post @ w + (ridge.predict(X_post) - X_post @ w)
+            # Ridge models the SCM's pre-period bias
+            scm_residual = Y_pre - scm_pre
+            ridge_bias = Ridge(alpha=1.0, fit_intercept=True)
+            ridge_bias.fit(X_pre, scm_residual)
+
+            synth_post = scm_post + ridge_bias.predict(X_post)
             gap = float(np.mean(Y_post - synth_post))
             placebo_effects.append(gap)
         except Exception:
@@ -355,29 +362,24 @@ def _conformal_inference_ascm(
     se = float(np.std(perm_stats))
 
     # --- Step 5: Confidence interval by test inversion ---
-    # The CI is {tau_0 : p(tau_0) > alpha}. For a shift-based test, this
-    # is equivalent to: tau_hat +/- quantile of the permutation distribution.
+    # The CI is {tau_0 : p(tau_0) > alpha}. For a shift-based conformal
+    # test, we center the permutation distribution and use quantiles:
+    #     CI = [observed_stat - q_upper_centered,
+    #           observed_stat - q_lower_centered]
     #
-    # Under H0: tau = tau_0, the adjusted post gaps are (post_gaps - tau_0),
-    # and we pool these with pre_residuals. Instead of re-running for every
-    # tau_0, we use the duality: the CI bounds are
-    #     tau_hat - q_{1-alpha/2}(perm_stats) and
-    #     tau_hat - q_{alpha/2}(perm_stats)
-    # where q denotes quantiles of the *centered* permutation distribution.
-    #
-    # Equivalently, since the permutation distribution is centered on the
-    # pooled mean, the CI is:
-    #     [observed_stat - (q_upper - pooled_mean),
-    #      observed_stat - (q_lower - pooled_mean)]
-    # which simplifies to using the quantiles of perm_stats directly:
-    q_lower = np.percentile(perm_stats, 100 * alpha / 2)
-    q_upper = np.percentile(perm_stats, 100 * (1 - alpha / 2))
+    # Center the permutation distribution (subtract its mean so quantiles
+    # represent deviations from the expected value under H0).
+    perm_mean = np.mean(perm_stats)
+    centered_perm = perm_stats - perm_mean
 
-    # CI via inversion: the set of tau_0 not rejected at level alpha
-    ci_lower = float(observed_stat - q_upper + np.mean(pooled))
-    ci_upper = float(observed_stat - q_lower + np.mean(pooled))
+    q_lower = np.percentile(centered_perm, 100 * alpha / 2)
+    q_upper = np.percentile(centered_perm, 100 * (1 - alpha / 2))
 
-    # Ensure CI is ordered and contains the point estimate
+    # CI via inversion: observed_stat minus the centered quantiles
+    ci_lower = float(observed_stat - q_upper)
+    ci_upper = float(observed_stat - q_lower)
+
+    # Ensure CI is ordered
     ci_lower, ci_upper = min(ci_lower, ci_upper), max(ci_lower, ci_upper)
 
     logger.info(
@@ -555,7 +557,8 @@ def _bsts_causalimpact(
     rel_lower = ci_lower_abs / baseline if baseline > 0 else 0
     rel_upper = ci_upper_abs / baseline if baseline > 0 else 0
 
-    cohen_d = tau / se if se > 0 else 0
+    outcome_sd = float(np.std(Y_post, ddof=1)) if len(Y_post) > 1 else se
+    cohen_d = tau / outcome_sd if outcome_sd > 0 else 0
     lift_likelihood = float(1 - scipy_stats.norm.cdf(0, loc=tau, scale=se)) if se > 0 else 0.5
 
     logger.info(
@@ -691,11 +694,10 @@ def _bsts_statsmodels(
     ci_lower = float(np.percentile(simulated_taus, 100 * alpha / 2))
     ci_upper = float(np.percentile(simulated_taus, 100 * (1 - alpha / 2)))
 
-    if tau > 0:
-        p_value = float(np.mean(simulated_taus <= 0)) * 2
-    else:
-        p_value = float(np.mean(simulated_taus >= 0)) * 2
-    p_value = min(p_value, 1.0)
+    # Two-sided p-value: fraction of posterior simulations at least as
+    # extreme as the observed tau (in absolute value)
+    p_value = float(np.mean(np.abs(simulated_taus) >= abs(tau)))
+    p_value = max(p_value, 1.0 / (n_sim + 1))  # Avoid exact zero
 
     lift_likelihood = float(np.mean(simulated_taus > 0))
 
@@ -703,7 +705,8 @@ def _bsts_statsmodels(
     rel_lower = ci_lower / baseline if baseline > 0 else 0
     rel_upper = ci_upper / baseline if baseline > 0 else 0
 
-    cohen_d = tau / se if se > 0 else 0
+    outcome_sd = float(np.std(Y_post, ddof=1)) if len(Y_post) > 1 else se
+    cohen_d = tau / outcome_sd if outcome_sd > 0 else 0
 
     return IncrementalityResult(
         absolute_lift=float(tau),
@@ -755,7 +758,12 @@ def difference_in_differences(
         raise ValueError("Insufficient data for DiD")
 
     tau = t_diff.mean() - h_diff.mean()
-    baseline = h_post.mean()
+    # Baseline: treatment counterfactual = treatment_pre + holdout_change
+    # This is the standard DiD counterfactual for the treatment group
+    holdout_change = h_post.mean() - h_pre.mean()
+    baseline = t_pre.mean() + holdout_change
+    if baseline <= 0:
+        baseline = h_post.mean()  # Fallback to holdout post if counterfactual is negative
 
     # Bootstrap
     taus = _clustered_bootstrap(t_diff.values, h_diff.values, n_boot=2000)
@@ -995,8 +1003,11 @@ def _build_panel_matrices(
 
     Y_pre = treat_pre.loc[pre_dates].values
     Y_post = treat_post.loc[post_dates].values
-    X_pre = control_pre.loc[pre_dates].ffill().fillna(0).values
-    X_post = control_post.loc[post_dates].ffill().fillna(0).values
+    # Fill missing data: backfill leading NaN (where ffill can't help),
+    # then forward-fill interior gaps. This avoids synthetic zero-revenue
+    # at the start that would bias SCM weights.
+    X_pre = control_pre.loc[pre_dates].ffill().bfill().fillna(0).values
+    X_post = control_post.loc[post_dates].ffill().bfill().fillna(0).values
 
     return Y_pre, Y_post, X_pre, X_post, pre_dates, post_dates
 

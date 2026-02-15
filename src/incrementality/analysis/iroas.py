@@ -40,19 +40,26 @@ def compute_incremental_revenue(
 
     Returns: (incremental_revenue, lower_ci, upper_ci)
     """
-    total = lift_result.absolute_lift * num_treatment_dmas * test_duration_days
-    lower = lift_result.lift_lower_ci
-    upper = lift_result.lift_upper_ci
+    scale = num_treatment_dmas * test_duration_days
+    total = lift_result.absolute_lift * scale
 
-    baseline_per_dma_day = (
-        lift_result.absolute_lift / lift_result.relative_lift
-        if lift_result.relative_lift != 0
-        else 0
-    )
-    total_baseline = baseline_per_dma_day * num_treatment_dmas * test_duration_days
+    # Compute baseline safely — guard against near-zero relative_lift
+    if abs(lift_result.relative_lift) > 1e-6:
+        baseline_per_dma_day = lift_result.absolute_lift / lift_result.relative_lift
+    else:
+        # Cannot reliably derive baseline from near-zero relative lift.
+        # Use absolute lift bounds directly (they are already per-DMA-per-day).
+        baseline_per_dma_day = 0.0
 
-    lower_abs = lower * total_baseline
-    upper_abs = upper * total_baseline
+    if baseline_per_dma_day > 0:
+        total_baseline = baseline_per_dma_day * scale
+        # CI bounds are relative — convert to absolute
+        lower_abs = lift_result.lift_lower_ci * total_baseline
+        upper_abs = lift_result.lift_upper_ci * total_baseline
+    else:
+        # Fallback: no reliable baseline, report total with no CI spread
+        lower_abs = total
+        upper_abs = total
 
     return total, lower_abs, upper_abs
 

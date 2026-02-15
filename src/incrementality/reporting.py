@@ -14,7 +14,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from incrementality.models import (
@@ -83,8 +83,14 @@ def generate_report(
         duration_weeks=design.duration_weeks,
         num_treatment_dmas=design.num_treatment_dmas,
         num_holdout_dmas=design.num_holdout_dmas,
-        test_start=design.recommended_start_date,
-        test_end=design.recommended_end_date,
+        test_start=(
+            design.recommended_start_date
+            or (design.deployed_at.date() if design.deployed_at else date.today())
+        ),
+        test_end=(
+            design.recommended_end_date
+            or date.today()
+        ),
         incrementality=incrementality,
         iroas=iroas,
         treatment_total_revenue=treatment_total_revenue,

@@ -238,7 +238,7 @@ def _check_zscore_outliers(
             continue
 
         mean = np.mean(dma_data)
-        std = np.std(dma_data)
+        std = np.std(dma_data, ddof=1)  # Sample std for proper z-scores
 
         if std < 1e-8:
             continue

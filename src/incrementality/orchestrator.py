@@ -221,6 +221,17 @@ class TestOrchestrator:
         """
         from datetime import datetime
 
+        if design.status == TestStatus.RUNNING:
+            raise ValueError(
+                f"Test {design.test_id} is already running. "
+                f"Revert it first before re-deploying."
+            )
+        if design.status == TestStatus.ANALYZED:
+            raise ValueError(
+                f"Test {design.test_id} has already been analyzed. "
+                f"Create a new test to run again."
+            )
+
         holdout_dmas = design.holdout_cell.dma_codes
 
         # Determine which campaigns to target
@@ -259,6 +270,12 @@ class TestOrchestrator:
         Should be called after the test period ends (or to abort early).
         """
         from datetime import datetime
+
+        if design.status not in (TestStatus.RUNNING, TestStatus.COMPLETED):
+            raise ValueError(
+                f"Test {design.test_id} is in '{design.status}' state. "
+                f"Only running or completed tests can be reverted."
+            )
 
         if not design.original_targeting:
             raise ValueError(
@@ -446,6 +463,25 @@ class TestOrchestrator:
                 f"Spillover adjustment: {primary_result.absolute_lift:.4f} -> "
                 f"{adjusted_lift:.4f}"
             )
+            # Apply the spillover-adjusted lift to the primary result
+            if primary_result.absolute_lift != 0:
+                adjustment_ratio = adjusted_lift / primary_result.absolute_lift
+            else:
+                adjustment_ratio = 1.0
+            primary_result = IncrementalityResult(
+                absolute_lift=adjusted_lift,
+                relative_lift=primary_result.relative_lift * adjustment_ratio,
+                lift_lower_ci=primary_result.lift_lower_ci * adjustment_ratio,
+                lift_upper_ci=primary_result.lift_upper_ci * adjustment_ratio,
+                p_value=primary_result.p_value,
+                is_significant=primary_result.is_significant,
+                confidence_level=primary_result.confidence_level,
+                cohen_d=primary_result.cohen_d,
+                method=primary_result.method,
+                l2_imbalance=primary_result.l2_imbalance,
+                pre_period_r_squared=primary_result.pre_period_r_squared,
+                lift_likelihood=primary_result.lift_likelihood,
+            )
 
         # --- Step 5: Compute iROAS with IF and CPIA ---
         logger.info("Computing incremental ROAS with IF/CPIA...")
@@ -591,7 +627,7 @@ class TestOrchestrator:
         # Combine platform orders into total
         order_cols = [c for c in result.columns if c.endswith("_orders")]
         if order_cols:
-            result["orders"] = result[order_cols].sum(axis=1).astype(int)
+            result["orders"] = result[order_cols].sum(axis=1).round().astype(int)
 
         return result
 
@@ -612,10 +648,16 @@ class TestOrchestrator:
             return pd.DataFrame(columns=["date", "dma_code", "spend"])
 
     def _save_design(self, design: TestDesign) -> None:
-        """Persist test design to disk."""
+        """Persist test design to disk atomically.
+
+        Writes to a temporary file first, then renames to avoid corruption
+        if the process crashes mid-write.
+        """
         path = self.data_dir / f"{design.test_id}_design.json"
-        with open(path, "w") as f:
+        tmp_path = path.with_suffix(".json.tmp")
+        with open(tmp_path, "w") as f:
             json.dump(design.model_dump(mode="json"), f, indent=2, default=str)
+        tmp_path.replace(path)  # Atomic rename on POSIX
         logger.info(f"Design saved to {path}")
 
     def load_design(self, test_id: str) -> TestDesign:
@@ -629,13 +671,16 @@ class TestOrchestrator:
         """List all saved test designs."""
         tests = []
         for path in self.data_dir.glob("*_design.json"):
-            with open(path) as f:
-                raw = json.load(f)
-            tests.append({
-                "test_id": raw["test_id"],
-                "name": raw["name"],
-                "status": raw["status"],
-                "channel": raw["ad_channel"],
-                "duration_weeks": raw["duration_weeks"],
-            })
+            try:
+                with open(path) as f:
+                    raw = json.load(f)
+                tests.append({
+                    "test_id": raw["test_id"],
+                    "name": raw["name"],
+                    "status": raw["status"],
+                    "channel": raw["ad_channel"],
+                    "duration_weeks": raw["duration_weeks"],
+                })
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Skipping corrupted design file {path}: {e}")
         return tests

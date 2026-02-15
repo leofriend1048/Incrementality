@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ShopifyConfig(BaseModel):
@@ -52,6 +52,27 @@ class StatisticalConfig(BaseModel):
     max_holdout_fraction: float = 0.50  # Max fraction of DMAs in holdout
     target_holdout_fraction: float = 0.25  # Ideal holdout fraction
     balance_tolerance: float = 0.10  # Max standardized mean difference for balance
+
+    @field_validator("significance_level")
+    @classmethod
+    def _validate_alpha(cls, v: float) -> float:
+        if not 0 < v < 1:
+            raise ValueError(f"significance_level must be between 0 and 1, got {v}")
+        return v
+
+    @field_validator("target_power")
+    @classmethod
+    def _validate_power(cls, v: float) -> float:
+        if not 0 < v < 1:
+            raise ValueError(f"target_power must be between 0 and 1, got {v}")
+        return v
+
+    @field_validator("max_holdout_fraction", "target_holdout_fraction")
+    @classmethod
+    def _validate_fraction(cls, v: float) -> float:
+        if not 0 < v <= 1:
+            raise ValueError(f"holdout fraction must be between 0 and 1, got {v}")
+        return v
 
 
 class Config(BaseModel):

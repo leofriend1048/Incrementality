@@ -144,14 +144,14 @@ def run_full_validation(
             f"Pre-period fit is marginal (L2={l2:.4f}). Results may have elevated bias."
         )
 
-    if r2 < 0.80:
+    if r2 < 0.90:
         warnings_list.append(
             f"Pre-period R²={r2:.3f} is below 0.90 target. "
             f"Counterfactual prediction quality is limited."
         )
 
-    # Compute MAPE
-    pre_mape = l2  # L2 normalized imbalance approximates MAPE
+    # Normalized RMSE (stored as pre_period_mape for backward compatibility)
+    pre_mape = l2  # L2 normalized imbalance = NRMSE
 
     # ---------------------------------------------------------------
     # 6. Overall trust score
@@ -194,7 +194,11 @@ def _run_aa_test(
     date_col: str,
     alpha: float,
 ) -> tuple[float, bool]:
-    """AA test: split pre-period in half, run analysis. Should find no effect."""
+    """AA test: split pre-period in half, run analysis. Should find no effect.
+
+    Uses ASCM (primary estimator) to validate that the method itself does not
+    find spurious effects in the pre-period.
+    """
     dates = sorted(pre_data[date_col].unique())
     if len(dates) < 14:
         return 1.0, True  # Not enough data, skip
@@ -204,14 +208,23 @@ def _run_aa_test(
     aa_post = pre_data[pre_data[date_col].isin(dates[midpoint:])]
 
     try:
-        result = difference_in_differences(
+        # Use ASCM (primary estimator) so we validate the actual method
+        result = augmented_synthetic_control(
             aa_pre, aa_post, treatment_dmas, holdout_dmas,
-            revenue_col, dma_col, alpha,
+            revenue_col, dma_col, date_col, alpha,
         )
         return result.p_value, result.p_value > alpha
-    except Exception as e:
-        logger.warning(f"AA test failed to run: {e}")
-        return 1.0, True
+    except Exception:
+        # Fall back to DiD if ASCM fails (e.g. insufficient data for SCM)
+        try:
+            result = difference_in_differences(
+                aa_pre, aa_post, treatment_dmas, holdout_dmas,
+                revenue_col, dma_col, alpha,
+            )
+            return result.p_value, result.p_value > alpha
+        except Exception as e:
+            logger.warning(f"AA test failed to run: {e}")
+            return 1.0, True
 
 
 def _run_placebo_in_time(
@@ -268,7 +281,10 @@ def _run_placebo_in_space(
     date_col: str,
     alpha: float,
 ) -> list[PlaceboTestResult]:
-    """Placebo-in-space: treat each holdout DMA as if it were treated."""
+    """Placebo-in-space: treat each holdout DMA as if it were treated.
+
+    Uses ASCM (primary estimator) so the FPR reflects the actual method.
+    """
     results = []
 
     for target_dma in holdout_dmas:
@@ -277,9 +293,10 @@ def _run_placebo_in_space(
             continue
 
         try:
-            result = difference_in_differences(
+            # Use ASCM to match the primary analysis method
+            result = augmented_synthetic_control(
                 pre_data, post_data, [target_dma], donor_dmas,
-                revenue_col, dma_col, alpha,
+                revenue_col, dma_col, date_col, alpha,
             )
             results.append(PlaceboTestResult(
                 placebo_type="in_space",
@@ -289,7 +306,21 @@ def _run_placebo_in_space(
                 is_false_positive=result.is_significant,
             ))
         except Exception:
-            continue
+            # Fall back to DiD for this DMA if ASCM fails
+            try:
+                result = difference_in_differences(
+                    pre_data, post_data, [target_dma], donor_dmas,
+                    revenue_col, dma_col, alpha,
+                )
+                results.append(PlaceboTestResult(
+                    placebo_type="in_space",
+                    target_dma=target_dma,
+                    estimated_effect=result.relative_lift,
+                    p_value=result.p_value,
+                    is_false_positive=result.is_significant,
+                ))
+            except Exception:
+                continue
 
     return results
 
@@ -306,10 +337,19 @@ def _compute_estimator_agreement(
         return 1.0
 
     lifts = [r.relative_lift for r in results.values()]
-    signs = [1 if l > 0 else -1 for l in lifts]
+    # Treat near-zero lifts as agreeing with the majority direction
+    signs = [1 if l > 1e-6 else (-1 if l < -1e-6 else 0) for l in lifts]
+    non_zero_signs = [s for s in signs if s != 0]
 
-    # Direction agreement: do they all agree on the sign?
-    direction_score = abs(sum(signs)) / len(signs)
+    # Direction agreement: fraction of estimators agreeing on sign
+    if non_zero_signs:
+        # Count the dominant direction vs total non-zero
+        direction_score = max(
+            sum(1 for s in non_zero_signs if s > 0),
+            sum(1 for s in non_zero_signs if s < 0),
+        ) / len(signs)
+    else:
+        direction_score = 1.0  # All near-zero = agreement
 
     # Magnitude agreement: coefficient of variation of lifts
     lifts_arr = np.array(lifts)
@@ -362,7 +402,7 @@ def _compute_trust_score(
 
     # Pre-period fit (20 points)
     l2_score = max(0, 1 - l2 / 0.10) * 10  # 10 points for L2
-    r2_score = max(0, (r2 - 0.80) / 0.20) * 10  # 10 points for R²
+    r2_score = max(0, (r2 - 0.80) / 0.10) * 10  # 10 points for R² (full at 0.90)
     score += l2_score + r2_score
 
     # No blockers (15 points)

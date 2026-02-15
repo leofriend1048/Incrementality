@@ -162,13 +162,17 @@ def apply_geographic_buffer(
     if spillover["risk_score"] > 0.0:
         # Remove contaminated holdout DMAs
         candidate_holdout = [d for d in holdout_dmas if d not in contaminated_holdout]
+        # Also remove contaminated treatment DMAs (border DMAs on both sides)
+        candidate_treatment = [d for d in treatment_dmas if d not in contaminated_treatment]
 
         if len(candidate_holdout) >= min_holdout:
-            buffer_dmas = list(contaminated_holdout)
+            buffer_dmas = list(contaminated_holdout | contaminated_treatment)
             filtered_holdout = candidate_holdout
+            filtered_treatment = candidate_treatment
             logger.info(
-                f"Geographic buffer: removed {len(buffer_dmas)} holdout DMAs "
-                f"({len(filtered_holdout)} remain)"
+                f"Geographic buffer: removed {len(contaminated_holdout)} holdout + "
+                f"{len(contaminated_treatment)} treatment border DMAs from analysis "
+                f"({len(filtered_holdout)} holdout, {len(filtered_treatment)} treatment remain)"
             )
         else:
             # Not enough holdout DMAs left after buffering

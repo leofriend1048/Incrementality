@@ -97,11 +97,14 @@ def winsorize_panel(
     original_means = dma_means.values.copy()
     winsorized_means = winsorize_series(original_means, lower_pct, upper_pct)
 
-    # Compute scaling factor per DMA
+    # Compute scaling factor per DMA, capping to prevent extreme amplification
     scale_map = {}
     for i, dma in enumerate(dma_means.index):
         if original_means[i] > 0:
-            scale_map[dma] = winsorized_means[i] / original_means[i]
+            scale = winsorized_means[i] / original_means[i]
+            # Cap scaling factor to prevent extreme amplification for
+            # small-mean DMAs (e.g., mean=$1 winsorized to $100 = 100x)
+            scale_map[dma] = max(0.1, min(scale, 10.0))
         else:
             scale_map[dma] = 1.0
 

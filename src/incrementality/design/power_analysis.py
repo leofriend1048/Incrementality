@@ -69,13 +69,17 @@ def estimate_historical_variance(
         .reset_index()
     )
 
-    # Between-DMA variance: variance of DMA means
-    dma_means = weekly.groupby(dma_col)["revenue"].mean()
-    between_var = dma_means.var()
-
     # Within-DMA variance: average variance within each DMA over time
     within_vars = weekly.groupby(dma_col)["revenue"].var()
     within_var = within_vars.mean()
+
+    # Between-DMA variance: variance of DMA means minus the within-DMA
+    # contribution. var(dma_means) = sigma^2_between + sigma^2_within / T,
+    # so sigma^2_between = var(dma_means) - sigma^2_within / T
+    dma_means = weekly.groupby(dma_col)["revenue"].mean()
+    n_periods_per_dma = weekly.groupby(dma_col)["revenue"].count().mean()
+    raw_between = dma_means.var()
+    between_var = max(0.0, raw_between - within_var / max(n_periods_per_dma, 1))
 
     total_var = between_var + within_var
     grand_mean = dma_means.mean()
@@ -183,7 +187,11 @@ def _compute_achieved_power(
     effect_absolute = effect_size * variance_estimate.mean_weekly_revenue
     noncentrality = effect_absolute / se if se > 0 else 0
 
-    power = 1 - stats.norm.cdf(z_alpha - noncentrality)
+    # Two-sided power: probability of rejecting in either tail
+    power = (
+        1 - stats.norm.cdf(z_alpha - noncentrality)  # upper tail
+        + stats.norm.cdf(-z_alpha - noncentrality)    # lower tail
+    )
     return float(min(power, 1.0))
 
 
@@ -265,9 +273,10 @@ def run_simulation_power_analysis(
         split_idx = rng.integers(min_pre, max_split + 1)
         split_date = dates[split_idx]
 
+        end_idx = min(split_idx + post_days, n_dates - 1)
         pre = df[df[date_col] < split_date]
         post = df[(df[date_col] >= split_date) &
-                   (df[date_col] < dates[min(split_idx + post_days, n_dates - 1)])]
+                   (df[date_col] <= dates[end_idx])]
 
         if pre.empty or post.empty:
             continue
@@ -438,11 +447,9 @@ def _compute_power_score(
     """
     score = 0.0
 
-    # Power (40 points)
+    # Power (40 points) — linear ramp: 0 at power=0, 40 at power>=0.80
     if simulated_power >= 0.80:
         score += 40.0
-    elif simulated_power >= 0.60:
-        score += 40.0 * (simulated_power - 0.40) / 0.40
     else:
         score += 40.0 * simulated_power / 0.80
 

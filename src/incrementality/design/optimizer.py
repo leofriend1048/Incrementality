@@ -118,13 +118,24 @@ def compute_dma_historical_metrics(
         m.total_ad_spend = m.facebook_spend + m.youtube_spend
         m.aov = m.total_revenue / m.total_orders if m.total_orders > 0 else 0
 
-        rev_source = shopify_daily if shopify_daily is not None else amazon_daily
-        if rev_source is not None and not rev_source.empty:
-            subset = rev_source[rev_source["dma_code"] == code].copy()
-            subset["date"] = pd.to_datetime(subset["date"])
-            subset = subset.sort_values("date")
-            if len(subset) >= 7:
-                weekly = subset.groupby(
+        # Compute trend/volatility from combined revenue sources (not just one)
+        rev_frames = []
+        if shopify_daily is not None and not shopify_daily.empty:
+            s = shopify_daily[shopify_daily["dma_code"] == code][["date", "revenue"]].copy()
+            if not s.empty:
+                rev_frames.append(s)
+        if amazon_daily is not None and not amazon_daily.empty:
+            a = amazon_daily[amazon_daily["dma_code"] == code][["date", "revenue"]].copy()
+            if not a.empty:
+                rev_frames.append(a)
+
+        if rev_frames:
+            combined = pd.concat(rev_frames, ignore_index=True)
+            combined["date"] = pd.to_datetime(combined["date"])
+            combined = combined.groupby("date")["revenue"].sum().reset_index()
+            combined = combined.sort_values("date")
+            if len(combined) >= 7:
+                weekly = combined.groupby(
                     pd.Grouper(key="date", freq="W")
                 )["revenue"].sum()
                 if len(weekly) >= 2:
@@ -506,10 +517,12 @@ def auto_design_test(
         matching_df, treatment_codes, holdout_codes,
     )
 
-    # Step 9: Run power analysis
+    # Step 9: Run power analysis (using post-buffer DMA counts for accuracy)
     logger.info("Running power analysis...")
+    n_analysis_treatment = len(analysis_treatment)
+    n_analysis_holdout = len(analysis_holdout)
     power_result = run_power_analysis(
-        variance_estimate, n_treatment, n_holdout, config, target_mde,
+        variance_estimate, n_analysis_treatment, n_analysis_holdout, config, target_mde,
     )
 
     # Step 9b: Run simulation-based power analysis if enough data
@@ -531,12 +544,12 @@ def auto_design_test(
         except Exception as e:
             logger.warning(f"Simulation power analysis failed: {e}")
 
-    # Step 10: Feasibility check
+    # Step 10: Feasibility check (using post-buffer counts)
     logger.info("Running feasibility check...")
     feasibility = run_feasibility_check(
         variance_estimate,
-        n_treatment,
-        n_holdout,
+        n_analysis_treatment,
+        n_analysis_holdout,
         power_result,
         holdout_cell.historical_revenue,
         power_result.recommended_duration_weeks,
