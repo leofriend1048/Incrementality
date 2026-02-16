@@ -4,7 +4,7 @@ A production-grade geo holdout testing platform that measures the true causal im
 
 ## The Problem
 
-Ad platforms (Facebook, Google) systematically over-report conversions by 20-80% through last-click attribution and modeled conversions. Marketers have no reliable way to know which portion of attributed revenue would have happened organically. Platform-reported ROAS cannot be trusted for budget allocation decisions.
+Ad platforms (Facebook, Google) systematically over-report conversions by 20-80% through last-click attribution and modeled conversions. Marketers have no reliable way to know which portion of attributed revenue would have happened organically. After Apple's ATT, this problem has only gotten worse. Platform-reported ROAS cannot be trusted for budget allocation decisions.
 
 ## The Solution
 
@@ -19,6 +19,24 @@ Incrementality runs controlled experiments at the geographic level (DMA-based ge
 - **Multi-platform** -- Shopify + Amazon (revenue sources), Facebook + YouTube (ad platforms)
 - **Multiple interfaces** -- CLI, Streamlit dashboard, and Python API
 - **Production-hardened** -- Retry with exponential backoff, timeouts, graceful degradation, and comprehensive error handling
+
+## Key Metrics
+
+| Metric | What It Tells You |
+|--------|-------------------|
+| **iROAS** | Incremental revenue per dollar of ad spend |
+| **Incrementality Factor** | How much the ad platform over/under-reports (IF=0.5 means 2x over-reporting) |
+| **CPIA** | True cost per incremental acquisition |
+| **Spend Response Curve** | Optimal spend level based on diminishing returns |
+
+## Supported Platforms
+
+| Revenue Sources | Ad Platforms |
+|-----------------|-------------|
+| Shopify (Admin API) | Facebook / Meta (Marketing API v22.0) |
+| Amazon (SP-API with RDT) | YouTube / Google Ads |
+
+Measurement scope: Shopify-only, Amazon-only, or cross-platform (Shopify + Amazon).
 
 ## Architecture
 
@@ -40,6 +58,8 @@ src/incrementality/
 
 ## Installation
 
+**Requires Python >= 3.10**
+
 ```bash
 # Create and activate virtual environment
 python -m venv venv
@@ -51,15 +71,19 @@ pip install -e ".[all]"
 # Or minimal (CLI + analysis only)
 pip install -e .
 
-# Dashboard only
-pip install -e ".[dashboard]"
+# Pick specific connectors
+pip install -e ".[shopify,facebook,dashboard]"
 ```
-
-**Requires Python >= 3.10**
 
 ## Configuration
 
 Create a `config.yaml` in the project root:
+
+```bash
+cp config/example_config.yaml config.yaml
+```
+
+Fill in your API credentials for the platforms you use:
 
 ```yaml
 shopify:
