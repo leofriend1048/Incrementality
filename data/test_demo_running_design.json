@@ -1,0 +1,79 @@
+{
+  "test_id": "test_demo_running",
+  "name": "Facebook Channel Holdout Q1 2026",
+  "description": "Geo holdout test for facebook (channel-level) measuring shopify_and_amazon revenue",
+  "test_scope": "channel",
+  "ad_channel": "facebook",
+  "campaign_ids": [],
+  "measurement_scope": "shopify_and_amazon",
+  "lookback_weeks": 12,
+  "recommended_start_date": "2026-02-16",
+  "recommended_end_date": "2026-04-13",
+  "duration_weeks": 8,
+  "treatment_cell": {
+    "cell_type": "treatment",
+    "dma_codes": [
+      "501", "803", "602", "504", "807", "511", "623", "618", "506", "524",
+      "539", "753", "819", "505", "613", "528", "751", "510", "508", "534",
+      "527", "825", "820", "616", "659", "512", "560", "517", "641", "515",
+      "535", "609", "635", "561", "529", "770", "839", "828", "652", "757",
+      "547", "519", "542", "544", "548", "567", "577", "530", "532", "556",
+      "575", "640", "545", "546", "531", "518", "557", "573", "570"
+    ],
+    "total_population": 198450000,
+    "historical_revenue": 8245612.50,
+    "historical_orders": 148420
+  },
+  "holdout_cell": {
+    "cell_type": "holdout",
+    "dma_codes": [
+      "533", "566", "563", "581", "514", "540", "541", "558", "564", "549",
+      "543", "536", "538", "550", "559", "522", "523", "525", "526", "537",
+      "516", "502", "520", "521", "569"
+    ],
+    "total_population": 52380000,
+    "historical_revenue": 2180475.25,
+    "historical_orders": 39230
+  },
+  "num_treatment_dmas": 59,
+  "num_holdout_dmas": 25,
+  "power_analysis": {
+    "minimum_detectable_effect": 0.118,
+    "recommended_duration_weeks": 8,
+    "required_sample_size_per_cell": 59,
+    "statistical_power": 0.85,
+    "significance_level": 0.05,
+    "baseline_variance": 185420310.5,
+    "baseline_mean_revenue": 12460.75,
+    "effect_size_cohen_d": 0.108,
+    "simulated_power": 0.84,
+    "simulated_false_positive_rate": 0.04,
+    "num_simulations": 200,
+    "power_score": 87.0
+  },
+  "feasibility": {
+    "is_feasible": true,
+    "power_score": 87.0,
+    "estimated_mde": 0.118,
+    "estimated_duration_weeks": 8,
+    "min_holdout_dmas": 25,
+    "estimated_opportunity_cost": 51476.0,
+    "reasons": [
+      "PASS: Test design is feasible. Power score: 87/100. Estimated opportunity cost: $51,476."
+    ],
+    "recommendations": [
+      "Proceed with test. Expected to detect effects >= 12% with 84% probability."
+    ]
+  },
+  "balance_score": 0.9412,
+  "original_targeting": {
+    "adset_001": {"geo_locations": {"regions": [{"key": "US"}]}, "excluded_geo_locations": {}},
+    "adset_002": {"geo_locations": {"regions": [{"key": "US"}]}, "excluded_geo_locations": {}},
+    "adset_003": {"geo_locations": {"regions": [{"key": "US"}]}, "excluded_geo_locations": {}}
+  },
+  "deployed_campaign_ids": ["campaign_10001", "campaign_10002", "campaign_10003"],
+  "deployed_at": "2026-02-16T08:00:15.123456",
+  "reverted_at": null,
+  "created_at": "2026-02-14T14:23:08.654321",
+  "status": "running"
+}

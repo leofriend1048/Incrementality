@@ -1,0 +1,76 @@
+{
+  "test_id": "test_demo_analyzed",
+  "name": "Facebook Channel Holdout Q4 2025",
+  "description": "Geo holdout test for facebook (channel-level) measuring shopify_and_amazon revenue",
+  "test_scope": "channel",
+  "ad_channel": "facebook",
+  "campaign_ids": [],
+  "measurement_scope": "shopify_and_amazon",
+  "lookback_weeks": 12,
+  "recommended_start_date": "2025-10-06",
+  "recommended_end_date": "2025-12-01",
+  "duration_weeks": 8,
+  "treatment_cell": {
+    "cell_type": "treatment",
+    "dma_codes": [
+      "501", "803", "602", "504", "807", "511", "623", "618", "506", "524",
+      "539", "753", "819", "505", "613", "528", "751", "510", "508", "534",
+      "527", "825", "820", "616", "659", "512", "560", "517", "641", "515",
+      "535", "609", "635", "561", "529", "770", "839", "828", "652", "757"
+    ],
+    "total_population": 168240000,
+    "historical_revenue": 7128450.00,
+    "historical_orders": 128312
+  },
+  "holdout_cell": {
+    "cell_type": "holdout",
+    "dma_codes": [
+      "533", "566", "563", "581", "514", "540", "541", "558", "564", "549",
+      "543", "536", "538", "550", "559", "522", "523", "525", "526", "537",
+      "547", "519", "542", "544", "548"
+    ],
+    "total_population": 54120000,
+    "historical_revenue": 2305875.00,
+    "historical_orders": 41505
+  },
+  "num_treatment_dmas": 40,
+  "num_holdout_dmas": 25,
+  "power_analysis": {
+    "minimum_detectable_effect": 0.121,
+    "recommended_duration_weeks": 8,
+    "required_sample_size_per_cell": 40,
+    "statistical_power": 0.84,
+    "significance_level": 0.05,
+    "baseline_variance": 172580410.0,
+    "baseline_mean_revenue": 13810.25,
+    "effect_size_cohen_d": 0.127,
+    "simulated_power": 0.86,
+    "simulated_false_positive_rate": 0.04,
+    "num_simulations": 200,
+    "power_score": 89.0
+  },
+  "feasibility": {
+    "is_feasible": true,
+    "power_score": 89.0,
+    "estimated_mde": 0.121,
+    "estimated_duration_weeks": 8,
+    "min_holdout_dmas": 25,
+    "estimated_opportunity_cost": 55842.0,
+    "reasons": [
+      "PASS: Test design is feasible. Power score: 89/100. Estimated opportunity cost: $55,842."
+    ],
+    "recommendations": [
+      "Proceed with test. Expected to detect effects >= 12% with 86% probability."
+    ]
+  },
+  "balance_score": 0.9578,
+  "original_targeting": {
+    "adset_001": {"geo_locations": {"regions": [{"key": "US"}]}, "excluded_geo_locations": {}},
+    "adset_002": {"geo_locations": {"regions": [{"key": "US"}]}, "excluded_geo_locations": {}}
+  },
+  "deployed_campaign_ids": ["campaign_10001", "campaign_10002"],
+  "deployed_at": "2025-10-06T08:00:00.000000",
+  "reverted_at": "2025-12-01T09:15:30.000000",
+  "created_at": "2025-10-03T11:30:00.000000",
+  "status": "analyzed"
+}
