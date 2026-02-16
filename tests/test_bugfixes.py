@@ -458,6 +458,83 @@ class TestFeasibilityInDesign:
 
 
 # ---------------------------------------------------------------------------
+# Optimizer should pick more holdout DMAs when variance is high
+# ---------------------------------------------------------------------------
+
+class TestOptimizerHoldoutSelection:
+    def test_high_variance_picks_more_than_minimum_holdout(self):
+        """When variance is high (MDE > target for all sizes), the optimizer
+        should still pick a reasonable holdout size rather than the minimum 5.
+
+        Regression test: the optimizer used to clamp mde_score at 0, causing
+        all holdout sizes to score identically when MDE exceeded target_mde.
+        The loop started at 5 and kept it due to strict > comparison.
+        """
+        from incrementality.design.optimizer import determine_optimal_holdout_size
+        from incrementality.design.power_analysis import HistoricalVarianceEstimate
+
+        # Simulate high-variance data where MDE won't reach 15% at any holdout size
+        # Using variance values that produce ~58% MDE at 5 holdout DMAs
+        var_est = HistoricalVarianceEstimate(
+            between_dma_variance=50000.0,
+            within_dma_variance=500000.0,
+            total_variance=550000.0,
+            mean_daily_revenue=100.0,
+            mean_weekly_revenue=700.0,
+            coefficient_of_variation=1.06,
+            num_dmas=210,
+            num_periods=12,
+            autocorrelation_lag1=0.3,
+        )
+
+        config = StatisticalConfig()
+        n_treatment, n_holdout = determine_optimal_holdout_size(
+            var_est, 210, config, target_mde=0.15,
+        )
+
+        # With high variance, optimizer should allocate significantly more than 5
+        assert n_holdout > 5, (
+            f"Optimizer selected only {n_holdout} holdout DMAs. "
+            f"With high variance, should pick more to reduce MDE."
+        )
+        # Should pick something in the range of 20-105 (not the minimum)
+        assert n_holdout >= 20, (
+            f"Expected >= 20 holdout DMAs, got {n_holdout}. "
+            f"Optimizer should aggressively reduce MDE when variance is high."
+        )
+        assert n_treatment + n_holdout == 210
+
+    def test_low_variance_stays_near_target(self):
+        """When variance is low enough to hit target MDE, optimizer should
+        pick a holdout near the target fraction (25%).
+        """
+        from incrementality.design.optimizer import determine_optimal_holdout_size
+        from incrementality.design.power_analysis import HistoricalVarianceEstimate
+
+        # Low variance — MDE should be well under 15% at target holdout
+        var_est = HistoricalVarianceEstimate(
+            between_dma_variance=100.0,
+            within_dma_variance=1000.0,
+            total_variance=1100.0,
+            mean_daily_revenue=100.0,
+            mean_weekly_revenue=700.0,
+            coefficient_of_variation=0.047,
+            num_dmas=210,
+            num_periods=12,
+            autocorrelation_lag1=0.1,
+        )
+
+        config = StatisticalConfig()
+        n_treatment, n_holdout = determine_optimal_holdout_size(
+            var_est, 210, config, target_mde=0.15,
+        )
+
+        # With low variance, should be near the target (25% of 210 = 52)
+        # but not necessarily exactly 52 — the penalty terms will shift it
+        assert 5 <= n_holdout <= 80, f"Unexpected holdout size: {n_holdout}"
+
+
+# ---------------------------------------------------------------------------
 # CLI analyze should accept --attributed-conversions
 # ---------------------------------------------------------------------------
 

@@ -186,7 +186,9 @@ def determine_optimal_holdout_size(
 
         # Score: strongly favor lower MDE, lightly penalize holdout size,
         # and prefer staying near the target holdout fraction.
-        mde_score = max(0, 1 - mde / target_mde)
+        # No floor on mde_score — when all configurations exceed target_mde,
+        # we still need to differentiate (prefer 20% MDE over 58% MDE).
+        mde_score = 1 - mde / target_mde
         holdout_penalty = n_h / total_dmas
         # Proximity bonus: prefer holdout sizes near target_holdout_fraction
         target_distance = abs(n_h - target_holdout) / total_dmas
