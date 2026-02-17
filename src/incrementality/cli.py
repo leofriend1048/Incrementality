@@ -1286,5 +1286,397 @@ def boundaries_centroid(max_distance: float, output_dir: str) -> None:
     spacer()
 
 
+# ── MMM Command Group ─────────────────────────────────────────────────────────
+
+@cli.group()
+def mmm() -> None:
+    """Marketing Mix Model (Meridian) commands.
+
+    \b
+    Fit a Google Meridian Bayesian MMM on 3+ years of DMA-level data,
+    optimize channel budget allocation, and reconcile against Northbeam MTA.
+
+    \b
+    Examples:
+        incrementality mmm fit
+        incrementality mmm fit --lookback-weeks 156 --budget 350000
+        incrementality mmm optimize --budget 350000
+        incrementality mmm results
+        incrementality mmm calibrate --channel meta_perf --lift 42000
+        incrementality mmm compare --run-id mmm_20260217_081234_abc123
+    """
+    pass
+
+
+@mmm.command("fit")
+@click.option("--lookback-weeks", type=int, default=156,
+              help="Weeks of history to train on (~3 years = 156)")
+@click.option("--budget", type=float, default=None,
+              help="Monthly budget for optimizer (USD). Defaults to config value.")
+@click.option("--shopify-weight", type=float, default=None,
+              help="Weight on Shopify revenue in optimizer objective (0–1)")
+@click.option("--amazon-weight", type=float, default=None,
+              help="Weight on Amazon revenue in optimizer objective (0–1)")
+@click.option("--use-cache", is_flag=True, default=False,
+              help="Use cached parquet data instead of pulling from APIs")
+@click.pass_context
+def mmm_fit(
+    ctx: click.Context,
+    lookback_weeks: int,
+    budget: float | None,
+    shopify_weight: float | None,
+    amazon_weight: float | None,
+    use_cache: bool,
+) -> None:
+    """Fit a Meridian MMM on DMA-level spend + revenue data."""
+    from incrementality.mmm_orchestrator import MMMOrchestrator
+
+    banner()
+    config = ctx.obj["config"]
+    orch = MMMOrchestrator(config)
+
+    section("MMM Configuration")
+    kv("Lookback", f"{lookback_weeks} weeks (~{lookback_weeks // 52:.1f} years)")
+    kv("Channels", ", ".join(config.mmm.channels))
+    kv("Outcomes", "Shopify + Amazon (joint bivariate)")
+    kv("MCMC", f"{config.mmm.mcmc_chains} chains × {config.mmm.mcmc_samples} samples")
+    kv("Engine", "Google Meridian (NUTS sampler)")
+    spacer()
+
+    # Data
+    with step("Pulling historical data"):
+        data = orch.pull_historical_data(lookback_weeks=lookback_weeks) \
+            if not use_cache else orch.load_cached_data()
+
+    pull_errors = getattr(orch, "pull_errors", {})
+    for src, df in data.items():
+        if not df.empty:
+            done(f"{src.title()}: {len(df):,} rows")
+        elif src in pull_errors:
+            warning(f"{src.title()}: no data — {pull_errors[src]}")
+        else:
+            info(f"{src.title()}: no connector configured (will use synthetic prior)")
+    spacer()
+
+    # Fit
+    with step("Fitting Meridian model (NUTS sampling)"):
+        result = orch.fit(
+            lookback_weeks=lookback_weeks,
+            data=data,
+        )
+
+    # Save
+    out_path = orch.save_result(result)
+
+    # Results summary
+    section("Model Results")
+    kv("Run ID", f"[accent]{result.run_id}[/accent]")
+    kv("DMAs", str(result.n_dmas))
+    kv("Training days", str(result.n_days))
+    kv("R-hat max", f"{result.rhat_max:.4f}")
+    kv("Converged", "[ok]Yes[/ok]" if result.converged else "[bad]No — review diagnostics[/bad]")
+    kv("Engine mode", "[muted](stub)[/muted]" if result.is_stub else "[ok]Meridian[/ok]")
+    spacer()
+
+    if result.channel_results:
+        section("Channel Contributions")
+        rows = []
+        for cr in sorted(result.channel_results, key=lambda x: x.contribution_mean, reverse=True):
+            rows.append({
+                "Channel": cr.channel,
+                "Outcome": cr.outcome,
+                "Contribution": money(cr.contribution_mean),
+                "Share %": f"{cr.contribution_pct * 100:.1f}%",
+                "ROI": f"{cr.roi_mean:.2f}x",
+                "R-hat": f"{cr.rhat:.3f}",
+            })
+        branded_table(rows, title="Channel × Outcome Contributions")
+        spacer()
+
+    section("Budget Optimizer")
+    kv("Total budget", money(budget or 350_000))
+    if result.optimal_allocation:
+        for ch, alloc in sorted(result.optimal_allocation.items(), key=lambda x: x[1], reverse=True):
+            kv(f"  {ch}", money(alloc))
+    kv("Expected Shopify rev", money(result.expected_shopify_revenue))
+    kv("Expected Amazon rev", money(result.expected_amazon_revenue))
+    kv("Blended ROAS", f"{result.blended_roas:.2f}x")
+    spacer()
+
+    if result.is_stub:
+        info("Running in stub mode — install 'meridian' for real Bayesian inference.")
+        info("  pip install meridian")
+        spacer()
+
+    done(f"Result saved to [accent]{out_path}[/accent]")
+    spacer()
+
+
+@mmm.command("optimize")
+@click.option("--budget", type=float, required=True,
+              help="Total budget to optimize across channels (USD)")
+@click.option("--shopify-weight", type=float, default=None,
+              help="Revenue weight for Shopify (0–1); remainder goes to Amazon")
+@click.option("--run-id", type=str, default=None,
+              help="Specific MMM run ID to use; defaults to latest")
+@click.pass_context
+def mmm_optimize(
+    ctx: click.Context,
+    budget: float,
+    shopify_weight: float | None,
+    run_id: str | None,
+) -> None:
+    """Run budget optimizer on a previously fitted MMM."""
+    from incrementality.mmm_orchestrator import MMMOrchestrator
+
+    banner()
+    config = ctx.obj["config"]
+    orch = MMMOrchestrator(config)
+
+    sw = shopify_weight if shopify_weight is not None else config.mmm.shopify_revenue_weight
+    aw = 1.0 - sw
+
+    section("Budget Optimization")
+    kv("Total budget", money(budget))
+    kv("Shopify weight", f"{sw:.0%}")
+    kv("Amazon weight", f"{aw:.0%}")
+    spacer()
+
+    with step("Running optimizer"):
+        alloc = orch.optimize(
+            total_budget=budget,
+            run_id=run_id,
+            shopify_weight=sw,
+            amazon_weight=aw,
+        )
+
+    section("Recommended Allocation")
+    for ch, spend in sorted(alloc["allocation"].items(), key=lambda x: x[1], reverse=True):
+        lower = alloc["allocation_lower"].get(ch, spend * 0.85)
+        upper = alloc["allocation_upper"].get(ch, spend * 1.15)
+        kv(f"  {ch}", f"{money(lower)}–{money(upper)}  (mid: {money(spend)})")
+    spacer()
+    kv("Expected Shopify rev", money(alloc["expected_shopify_revenue"]))
+    kv("Expected Amazon rev", money(alloc["expected_amazon_revenue"]))
+    kv("Expected total rev", money(alloc["expected_total_revenue"]))
+    kv("Blended ROAS", f"{alloc['blended_roas']:.2f}x")
+    spacer()
+
+
+@mmm.command("results")
+@click.option("--run-id", type=str, default=None,
+              help="Show details for a specific run ID; omit for latest")
+@click.pass_context
+def mmm_results(ctx: click.Context, run_id: str | None) -> None:
+    """Show saved MMM run results."""
+    from incrementality.mmm_orchestrator import MMMOrchestrator
+
+    banner()
+    config = ctx.obj["config"]
+    orch = MMMOrchestrator(config)
+
+    if run_id:
+        try:
+            result = orch.load_result(run_id)
+        except FileNotFoundError:
+            fail(f"No MMM result found for run_id '{run_id}'")
+            spacer()
+            return
+    else:
+        result = orch.load_latest_result()
+        if result is None:
+            info("No MMM results found. Run [accent]incrementality mmm fit[/accent] first.")
+            spacer()
+            return
+
+    section("MMM Run Summary")
+    kv("Run ID", f"[accent]{result.run_id}[/accent]")
+    kv("Generated", result.generated_at.strftime("%Y-%m-%d %H:%M UTC"))
+    kv("DMAs", str(result.n_dmas))
+    kv("Training days", str(result.n_days))
+    kv("R-hat max", f"{result.rhat_max:.4f}")
+    kv("Converged", "[ok]Yes[/ok]" if result.converged else "[bad]No[/bad]")
+    kv("Mode", "[muted]stub[/muted]" if result.is_stub else "[ok]Meridian[/ok]")
+    spacer()
+
+    if result.channel_results:
+        rows = []
+        for cr in sorted(result.channel_results, key=lambda x: x.contribution_mean, reverse=True):
+            rows.append({
+                "Channel": cr.channel,
+                "Outcome": cr.outcome,
+                "Contribution": money(cr.contribution_mean),
+                "Share": f"{cr.contribution_pct * 100:.1f}%",
+                "ROI": f"{cr.roi_mean:.2f}x",
+                "mROI": f"{cr.marginal_roi:.2f}x",
+                "R-hat": f"{cr.rhat:.3f}",
+            })
+        branded_table(rows, title="Channel × Outcome Contributions")
+        spacer()
+
+    if result.nb_mmm_delta:
+        section("Northbeam vs MMM Delta")
+        for ch, delta in sorted(result.nb_mmm_delta.items(), key=lambda x: abs(x[1]), reverse=True):
+            sign = "+" if delta >= 0 else ""
+            color = "ok" if abs(delta) < 0.20 else ("bad" if abs(delta) > 0.40 else "warn")
+            kv(f"  {ch}", f"[{color}]{sign}{delta * 100:.1f}%[/{color}]")
+        spacer()
+
+
+@mmm.command("calibrate")
+@click.option("--channel", required=True,
+              help="Channel tested (e.g. meta_perf, google_brand, tiktok)")
+@click.option("--test-type", type=click.Choice([
+    "geo_holdout", "meta_conversion_lift", "amazon_ab", "ghost_bidding"
+]), required=True, help="Type of incrementality test")
+@click.option("--start-date", required=True, help="Test start date (YYYY-MM-DD)")
+@click.option("--end-date", required=True, help="Test end date (YYYY-MM-DD)")
+@click.option("--lift", "lift_abs", type=float, required=True,
+              help="Absolute revenue lift ($) attributed to channel")
+@click.option("--lift-lower", type=float, default=None,
+              help="90%% CI lower bound for lift")
+@click.option("--lift-upper", type=float, default=None,
+              help="90%% CI upper bound for lift")
+@click.option("--spend", "spend_in_period", type=float, required=True,
+              help="Total channel spend during the test ($)")
+@click.option("--outcome", type=click.Choice(["shopify", "amazon", "combined"]),
+              default="shopify", help="Revenue outcome measured")
+@click.option("--geo-scope", default="NATIONAL",
+              help="Comma-separated DMA codes tested, or NATIONAL")
+@click.option("--notes", default="", help="Test design notes")
+@click.pass_context
+def mmm_calibrate(
+    ctx: click.Context,
+    channel: str,
+    test_type: str,
+    start_date: str,
+    end_date: str,
+    lift_abs: float,
+    lift_lower: float | None,
+    lift_upper: float | None,
+    spend_in_period: float,
+    outcome: str,
+    geo_scope: str,
+    notes: str,
+) -> None:
+    """Ingest a geo holdout or conversion lift result as a Meridian calibration event.
+
+    This constrains the posterior for the tested channel so the model's
+    channel contribution estimate stays within the experimentally measured
+    lift confidence interval — always more accurate than Northbeam priors.
+    """
+    from incrementality.mmm.calibration import CalibrationEvent, CalibrationStore
+    from datetime import date as date_type
+
+    banner()
+    config = ctx.obj["config"]
+    data_dir = Path(config.data_dir)
+
+    section("New Calibration Event")
+    kv("Channel", f"[accent]{channel}[/accent]")
+    kv("Test type", test_type)
+    kv("Period", f"{start_date} → {end_date}")
+    kv("Lift ($)", money(lift_abs))
+    kv("Spend ($)", money(spend_in_period))
+    kv("Implied ROI", f"{lift_abs / spend_in_period:.2f}x")
+    spacer()
+
+    event = CalibrationEvent(
+        channel=channel,
+        test_type=test_type,
+        test_start_date=date_type.fromisoformat(start_date),
+        test_end_date=date_type.fromisoformat(end_date),
+        lift_abs=lift_abs,
+        lift_lower_90=lift_lower if lift_lower is not None else lift_abs * 0.70,
+        lift_upper_90=lift_upper if lift_upper is not None else lift_abs * 1.30,
+        spend_in_period=spend_in_period,
+        outcome=outcome,
+        geo_scope=geo_scope,
+        notes=notes,
+    )
+
+    store = CalibrationStore(
+        storage_path=str(data_dir / "calibration_events.json")
+    )
+    store.add_event(event)
+
+    done(f"Calibration event saved — implied ROI: {event.implied_roi:.2f}x")
+    info("Re-run [accent]incrementality mmm fit[/accent] to apply this calibration constraint.")
+    spacer()
+
+
+@mmm.command("compare")
+@click.option("--run-id", type=str, default=None,
+              help="MMM run ID to compare against incrementality tests; defaults to latest")
+@click.pass_context
+def mmm_compare(ctx: click.Context, run_id: str | None) -> None:
+    """Compare MMM channel ROI estimates against incrementality test results.
+
+    Side-by-side: MMM posterior ROI vs. iROAS from geo holdout tests,
+    highlighting where the two methods agree or diverge.
+    """
+    from incrementality.mmm_orchestrator import MMMOrchestrator
+    from incrementality.orchestrator import TestOrchestrator
+
+    banner()
+    config = ctx.obj["config"]
+    mmm_orch = MMMOrchestrator(config)
+    test_orch = TestOrchestrator(config)
+
+    # Load MMM result
+    mmm_result = mmm_orch.load_result(run_id) if run_id else mmm_orch.load_latest_result()
+    if mmm_result is None:
+        info("No MMM results found. Run [accent]incrementality mmm fit[/accent] first.")
+        spacer()
+        return
+
+    # Load incrementality test results
+    tests = test_orch.list_tests()
+    analyzed = [t for t in tests if t.get("status") == "analyzed"]
+
+    section("MMM vs Geo Holdout Comparison")
+    kv("MMM run", f"[accent]{mmm_result.run_id}[/accent]")
+    kv("MMM generated", mmm_result.generated_at.strftime("%Y-%m-%d"))
+    kv("Analyzed tests", str(len(analyzed)))
+    spacer()
+
+    if mmm_result.channel_results:
+        rows = []
+        # Build a quick lookup: channel → iroas from test results
+        test_iroas: dict[str, float] = {}
+        for t in analyzed:
+            ch = t.get("channel", "").lower()
+            iroas = t.get("iroas", 0.0)
+            if ch and iroas:
+                test_iroas[ch] = iroas
+
+        for cr in sorted(
+            [r for r in mmm_result.channel_results if r.outcome == "shopify"],
+            key=lambda x: x.roi_mean, reverse=True
+        ):
+            test_roi = test_iroas.get(cr.channel, None)
+            delta_str = "—"
+            if test_roi and cr.roi_mean > 0:
+                delta = (cr.roi_mean - test_roi) / test_roi
+                sign = "+" if delta >= 0 else ""
+                color = "ok" if abs(delta) < 0.25 else "bad"
+                delta_str = f"[{color}]{sign}{delta * 100:.0f}%[/{color}]"
+
+            rows.append({
+                "Channel": cr.channel,
+                "MMM ROI": f"{cr.roi_mean:.2f}x",
+                "MMM 80% CI": f"[{cr.roi_p10:.2f}–{cr.roi_p90:.2f}]",
+                "Geo Holdout iROAS": f"{test_roi:.2f}x" if test_roi else "no test",
+                "Delta": delta_str,
+            })
+        branded_table(rows, title="Shopify ROI: MMM vs Geo Holdout")
+    spacer()
+
+    if not analyzed:
+        info("No analyzed geo holdout tests found for comparison.")
+        info("Run [accent]incrementality analyze --test-id <id>[/accent] to add test data.")
+    spacer()
+
+
 if __name__ == "__main__":
     cli()

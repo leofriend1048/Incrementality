@@ -44,10 +44,16 @@ brand_header()
 PAGES = {
     "Home": "home",
     "Configuration": "config",
+    # ── Geo Holdout Testing ───────────────────────────────────────────────
     "Test Designer": "designer",
     "Test Manager": "manager",
     "Analysis Report": "analysis",
     "Spend Optimizer": "spend",
+    # ── Marketing Mix Model (Meridian) ────────────────────────────────────
+    "MMM: Decomposition": "mmm_decomposition",
+    "MMM: DMA Intelligence": "mmm_dma",
+    "MMM: Budget Optimizer": "mmm_budget",
+    "MMM: Model Health": "mmm_health",
 }
 
 PAGE_ICONS = {
@@ -57,6 +63,10 @@ PAGE_ICONS = {
     "Test Manager": "📋",
     "Analysis Report": "📊",
     "Spend Optimizer": "💰",
+    "MMM: Decomposition": "📈",
+    "MMM: DMA Intelligence": "🗺️",
+    "MMM: Budget Optimizer": "🎯",
+    "MMM: Model Health": "🩺",
 }
 
 st.sidebar.markdown(f"""
@@ -66,10 +76,23 @@ Navigation
 </div>
 """, unsafe_allow_html=True)
 
+GEO_PAGES = ["Home", "Configuration", "Test Designer", "Test Manager",
+             "Analysis Report", "Spend Optimizer"]
+MMM_PAGES = ["MMM: Decomposition", "MMM: DMA Intelligence",
+             "MMM: Budget Optimizer", "MMM: Model Health"]
+
+
+def _page_label(p: str) -> str:
+    icon = PAGE_ICONS.get(p, "")
+    if p in MMM_PAGES and p == MMM_PAGES[0]:
+        return f"\n{icon}  {p}"
+    return f"{icon}  {p}"
+
+
 selected_page = st.sidebar.radio(
     "Navigation",
     list(PAGES.keys()),
-    format_func=lambda p: f"{PAGE_ICONS.get(p, '')}  {p}",
+    format_func=_page_label,
     label_visibility="collapsed",
 )
 
@@ -112,6 +135,22 @@ elif page_key == "analysis":
 elif page_key == "spend":
     from incrementality.dashboard.spend import render
     render(output_dir)
+
+elif page_key == "mmm_decomposition":
+    from incrementality.dashboard.mmm.decomposition import render
+    render()
+
+elif page_key == "mmm_dma":
+    from incrementality.dashboard.mmm.dma_intel import render
+    render()
+
+elif page_key == "mmm_budget":
+    from incrementality.dashboard.mmm.budget_opt import render
+    render()
+
+elif page_key == "mmm_health":
+    from incrementality.dashboard.mmm.model_health import render
+    render()
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 

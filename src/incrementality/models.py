@@ -17,6 +17,7 @@ class Platform(str, enum.Enum):
 class AdChannel(str, enum.Enum):
     FACEBOOK = "facebook"
     YOUTUBE = "youtube"
+    TIKTOK = "tiktok"
 
 
 class CellType(str, enum.Enum):
@@ -299,3 +300,64 @@ class FeasibilityResult(BaseModel):
     estimated_opportunity_cost: float  # $ lost from holdout
     reasons: list[str] = Field(default_factory=list)  # Why feasible or not
     recommendations: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# MMM (Marketing Mix Model) models
+# ---------------------------------------------------------------------------
+
+class MMMChannelResult(BaseModel):
+    """Posterior estimates for a single channel × outcome pair."""
+    channel: str
+    outcome: str  # "shopify" or "amazon"
+    # Revenue contribution
+    contribution_mean: float
+    contribution_p10: float
+    contribution_p90: float
+    contribution_pct: float  # Share of total modeled revenue
+    # ROI
+    roi_mean: float
+    roi_p10: float
+    roi_p90: float
+    # Marginal ROI at current spend
+    marginal_roi: float
+    # Adstock / saturation
+    adstock_decay: float = 0.0
+    saturation_alpha: float = 0.0
+    saturation_gamma: float = 0.0
+    # Convergence
+    rhat: float = 1.0
+
+
+class MMMRunResult(BaseModel):
+    """Full posterior output from a Meridian MMM run."""
+    run_id: str
+    # Posterior channel × outcome results (one per channel per outcome)
+    channel_results: list[MMMChannelResult] = Field(default_factory=list)
+    # Baseline decomposition
+    baseline_shopify: float = 0.0
+    baseline_amazon: float = 0.0
+    # Model fit
+    mape_shopify: float = 0.0
+    mape_amazon: float = 0.0
+    rhat_max: float = 0.0
+    converged: bool = False
+    # Validation gate outcomes
+    gate_1_passed: bool = False
+    gate_2_passed: bool = False
+    gate_3_passed: bool = False
+    # Budget optimizer output (populated after optimize() call)
+    optimal_allocation: dict[str, float] = Field(default_factory=dict)
+    expected_shopify_revenue: float = 0.0
+    expected_amazon_revenue: float = 0.0
+    expected_total_revenue: float = 0.0
+    blended_roas: float = 0.0
+    # Northbeam vs MMM delta table
+    nb_mmm_delta: dict[str, float] = Field(default_factory=dict)  # channel → delta %
+    # Metadata
+    n_dmas: int = 0
+    n_days: int = 0
+    channels: list[str] = Field(default_factory=list)
+    outcomes: list[str] = Field(default_factory=list)
+    is_stub: bool = True  # True until real Meridian is installed
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
