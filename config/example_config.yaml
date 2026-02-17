@@ -59,9 +59,9 @@ pinterest:
   ad_account_id: "549755885175"  # Pinterest ad account numeric ID
 
 applovin:
-  report_key: "your-applovin-report-key"   # SDK Report Key from MAX dashboard
-  sdk_key: "your-applovin-sdk-key"         # Optional — for device targeting
-  management_key: ""                         # Optional — Management API key
+  # AppLovin Ads (Axon engine) — the advertiser DSP, NOT AppLovin MAX (publisher SDK)
+  # Find your API key in: AppLovin Ads dashboard → Account → API
+  api_key: "your-applovin-ads-api-key"
 
 tatari:
   api_key: "your-tatari-api-key"

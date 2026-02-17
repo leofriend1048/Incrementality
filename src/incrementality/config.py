@@ -68,10 +68,12 @@ class PinterestConfig(BaseModel):
 
 
 class AppLovinConfig(BaseModel):
-    """AppLovin MAX Reporting API credentials."""
-    report_key: str          # SDK Report Key from MAX dashboard
-    sdk_key: str = ""        # SDK Key (for device targeting queries)
-    management_key: str = "" # Management API key (optional)
+    """AppLovin Ads (Axon engine) Campaign Management API credentials.
+
+    NOT AppLovin MAX (the publisher monetization SDK).
+    api_key is found in the AppLovin Ads dashboard under Account → API.
+    """
+    api_key: str             # AppLovin Ads API key (advertiser account)
 
 
 class TatariConfig(BaseModel):
