@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY pyproject.toml .
+COPY src/ src/
+
+RUN pip install --no-cache-dir -e ".[google,facebook]"
+RUN pip install --no-cache-dir prefect google-cloud-bigquery
+
+# dbt
+RUN pip install --no-cache-dir dbt-bigquery
+
+COPY dbt/ dbt/
+
+CMD ["python", "-m", "incrementality.pipelines.daily_ingest"]
