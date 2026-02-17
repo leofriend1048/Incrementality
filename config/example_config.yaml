@@ -46,6 +46,38 @@ tiktok:
   access_token: "your-tiktok-access-token"
   advertiser_id: "your-advertiser-id"
 
+tiktok_shop:
+  app_key: "your-tiktok-shop-app-key"
+  app_secret: "your-tiktok-shop-app-secret"
+  access_token: "your-tiktok-shop-access-token"
+  shop_id: "your-shop-id"  # TikTok Shop merchant ID
+
+pinterest:
+  app_id: "your-pinterest-app-id"
+  app_secret: "your-pinterest-app-secret"
+  access_token: "your-pinterest-access-token"
+  ad_account_id: "549755885175"  # Pinterest ad account numeric ID
+
+applovin:
+  report_key: "your-applovin-report-key"   # SDK Report Key from MAX dashboard
+  sdk_key: "your-applovin-sdk-key"         # Optional — for device targeting
+  management_key: ""                         # Optional — Management API key
+
+tatari:
+  api_key: "your-tatari-api-key"
+  account_id: "your-tatari-account-id"
+  base_url: "https://api.tatari.tv"
+
+# --- Owned & Retention Channels ---
+
+postscript:
+  api_key: "your-postscript-api-key"
+  shop_id: ""  # Optional — auto-discovered if blank
+
+klaviyo:
+  private_key: "pk_your-klaviyo-private-key"  # Server-side private key
+  public_key: ""                               # Optional public site ID
+
 # --- Northbeam MTA (calibration layer for MMM priors) ---
 
 northbeam:
@@ -55,13 +87,19 @@ northbeam:
   # Channel discount factors: NB MTA share × factor → prior mean for Meridian
   # Wider factors for upper-funnel channels where MTA overstates
   discount_factors:
-    meta_perf: 0.65
-    meta_aware: 0.60
-    google_brand: 0.85
+    meta_perf: 0.65        # MTA over-attributes; geo experiment is ground truth
+    meta_aware: 0.60       # Awareness harder to attribute; wider discount
+    google_brand: 0.85     # Brand search is mostly incremental
     google_nonbrand: 0.75
     tiktok: 0.65
-    amz_sponsored: 1.00
-    email_sms: 0.80
+    tiktok_shop: 0.70      # Shop GMV partly organic/affiliate
+    tiktok_gmv_max: 0.68
+    pinterest: 0.60        # Long consideration cycles → MTA understates lag
+    applovin: 0.55         # CTV/mobile attribution noisy
+    tatari: 0.50           # TV attribution highly uncertain
+    amz_sponsored: 1.00    # Amazon's own attribution is relatively clean
+    postscript_sms: 0.85   # SMS is last-touch; high incrementality for reactivations
+    klaviyo_email: 0.85
 
 # --- Statistical Parameters (Geo Holdout Tests) ---
 
@@ -81,13 +119,27 @@ statistical:
 mmm:
   # Channels to model (order matches the [T×G×C] media tensor)
   channels:
+    # Meta / Facebook
     - meta_perf
     - meta_aware
+    # Google / YouTube
     - google_brand
     - google_nonbrand
+    # TikTok
     - tiktok
+    - tiktok_shop
+    - tiktok_gmv_max
+    # Pinterest
+    - pinterest
+    # Mobile / CTV
+    - applovin
+    # TV
+    - tatari
+    # Amazon retail media
     - amz_sponsored
-    - email_sms
+    # Owned / retention
+    - postscript_sms
+    - klaviyo_email
 
   # MCMC — 4 chains × 2000 samples = 8000 total posterior draws
   mcmc_chains: 4

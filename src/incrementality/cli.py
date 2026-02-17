@@ -114,8 +114,10 @@ def cli(ctx: click.Context, config_path: str | None, verbose: bool) -> None:
 # ── Design Command ────────────────────────────────────────────────────────────
 
 @cli.command()
-@click.option("--channel", type=click.Choice(["facebook", "youtube"]),
-              required=True, help="Ad channel to test")
+@click.option("--channel", type=click.Choice([
+    "facebook", "youtube", "tiktok", "tiktok_shop",
+    "pinterest", "applovin", "tatari",
+]), required=True, help="Ad channel to test")
 @click.option("--scope", type=click.Choice(["channel", "campaign"]),
               default="channel", help="Test scope")
 @click.option("--measure", type=click.Choice([

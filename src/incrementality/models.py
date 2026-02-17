@@ -18,6 +18,10 @@ class AdChannel(str, enum.Enum):
     FACEBOOK = "facebook"
     YOUTUBE = "youtube"
     TIKTOK = "tiktok"
+    TIKTOK_SHOP = "tiktok_shop"
+    PINTEREST = "pinterest"
+    APPLOVIN = "applovin"
+    TATARI = "tatari"
 
 
 class CellType(str, enum.Enum):

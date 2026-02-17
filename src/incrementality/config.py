@@ -46,6 +46,51 @@ class TikTokConfig(BaseModel):
     secret: str
     access_token: str
     advertiser_id: str = ""
+    # TikTok Shop (separate API — merchant token)
+    shop_access_token: str = ""
+    shop_cipher: str = ""  # TikTok Shop cipher token for data access
+
+
+class TikTokShopConfig(BaseModel):
+    """TikTok Shop / affiliate merchant API credentials."""
+    app_key: str
+    app_secret: str
+    access_token: str
+    shop_id: str = ""
+
+
+class PinterestConfig(BaseModel):
+    """Pinterest Ads API v5 credentials."""
+    app_id: str
+    app_secret: str
+    access_token: str
+    ad_account_id: str  # e.g. "549755885175"
+
+
+class AppLovinConfig(BaseModel):
+    """AppLovin MAX Reporting API credentials."""
+    report_key: str          # SDK Report Key from MAX dashboard
+    sdk_key: str = ""        # SDK Key (for device targeting queries)
+    management_key: str = "" # Management API key (optional)
+
+
+class TatariConfig(BaseModel):
+    """Tatari TV measurement & attribution API credentials."""
+    api_key: str
+    account_id: str
+    base_url: str = "https://api.tatari.tv"
+
+
+class PostscriptConfig(BaseModel):
+    """Postscript SMS marketing API credentials."""
+    api_key: str
+    shop_id: str = ""
+
+
+class KlaviyoConfig(BaseModel):
+    """Klaviyo email / SMS marketing API v2024 credentials."""
+    private_key: str          # Server-side private API key (pk_...)
+    public_key: str = ""      # Public site ID (optional — for client tracking)
 
 
 class NorthbeamConfig(BaseModel):
@@ -59,8 +104,14 @@ class NorthbeamConfig(BaseModel):
         "google_brand": 0.85,
         "google_nonbrand": 0.75,
         "tiktok": 0.65,
+        "tiktok_shop": 0.70,
+        "tiktok_gmv_max": 0.68,
+        "pinterest": 0.60,
+        "applovin": 0.55,
+        "tatari": 0.50,
         "amz_sponsored": 1.0,
-        "email_sms": 0.80,
+        "postscript_sms": 0.85,
+        "klaviyo_email": 0.85,
     })
 
 
@@ -70,10 +121,24 @@ class MMMSettings(BaseModel):
     mcmc_chains: int = 4
     mcmc_warmup: int = 1000
     mcmc_samples: int = 2000
-    # Channels to include in the model (default: all 7 from PRD)
+    # Channels to include in the model
     channels: list[str] = Field(default_factory=lambda: [
-        "meta_perf", "meta_aware", "google_brand", "google_nonbrand",
-        "tiktok", "amz_sponsored", "email_sms",
+        # Meta / Facebook
+        "meta_perf", "meta_aware",
+        # Google / YouTube
+        "google_brand", "google_nonbrand",
+        # TikTok (ads, Shop, GMV Max)
+        "tiktok", "tiktok_shop", "tiktok_gmv_max",
+        # Pinterest
+        "pinterest",
+        # AppLovin (mobile / connected TV)
+        "applovin",
+        # TV (Tatari-measured)
+        "tatari",
+        # Amazon retail media
+        "amz_sponsored",
+        # Owned: SMS (Postscript) + Email (Klaviyo)
+        "postscript_sms", "klaviyo_email",
     ])
     # Budget optimizer constraints
     max_channel_concentration: float = 0.55  # No channel > 55% of budget
@@ -133,12 +198,25 @@ class StatisticalConfig(BaseModel):
 
 class Config(BaseModel):
     """Top-level configuration."""
+    # Revenue / measurement
     shopify: ShopifyConfig | None = None
     amazon: AmazonConfig | None = None
+    # Paid social
     facebook: FacebookConfig | None = None
     youtube: YouTubeConfig | None = None
     tiktok: TikTokConfig | None = None
+    tiktok_shop: TikTokShopConfig | None = None
+    pinterest: PinterestConfig | None = None
+    # Mobile / CTV
+    applovin: AppLovinConfig | None = None
+    # TV
+    tatari: TatariConfig | None = None
+    # Owned / retention
+    postscript: PostscriptConfig | None = None
+    klaviyo: KlaviyoConfig | None = None
+    # MTA calibration layer
     northbeam: NorthbeamConfig | None = None
+    # Engine settings
     statistical: StatisticalConfig = Field(default_factory=StatisticalConfig)
     mmm: MMMSettings = Field(default_factory=MMMSettings)
     data_dir: str = "./data"

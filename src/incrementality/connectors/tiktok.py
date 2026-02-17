@@ -266,6 +266,103 @@ class TikTokConnector:
     # Public API
     # ------------------------------------------------------------------
 
+    def get_daily_spend_by_objective(
+        self,
+        start_date: date,
+        end_date: date,
+        objective_type: str = "GMV_MAX",
+    ) -> pd.DataFrame:
+        """Fetch daily spend filtered to a specific campaign objective type.
+
+        Use this to isolate GMV Max campaigns (objective_type='GMV_MAX')
+        from general TikTok performance campaigns for separate MMM channels.
+
+        Args:
+            start_date: Inclusive start date.
+            end_date: Inclusive end date.
+            objective_type: TikTok campaign objective (e.g. 'GMV_MAX',
+                'VIDEO_VIEWS', 'CONVERSIONS', 'REACH').
+
+        Returns:
+            DataFrame with columns:
+                date, region, objective_type, spend, impressions,
+                video_views, video_completions
+        """
+        advertiser_id = self._get_ad_account_id()
+
+        # First get campaign IDs matching the objective
+        campaigns = self.get_campaign_list()
+        matching_ids = [
+            str(c["campaign_id"])
+            for c in campaigns
+            if c.get("objective_type", "").upper() == objective_type.upper()
+        ]
+        if not matching_ids:
+            logger.info(
+                "TikTok: no campaigns found with objective=%s", objective_type
+            )
+            return pd.DataFrame(
+                columns=["date", "region", "objective_type", "spend",
+                         "impressions", "video_views", "video_completions"]
+            )
+
+        all_rows: list[dict] = []
+        chunk_start = start_date
+
+        while chunk_start <= end_date:
+            chunk_end = min(chunk_start + timedelta(days=29), end_date)
+
+            rows = self._paginate_report(
+                advertiser_id=advertiser_id,
+                start_date=chunk_start,
+                end_date=chunk_end,
+                dimensions=["stat_time_day", "province_id", "province_name",
+                            "campaign_id"],
+                metrics=["spend", "impressions", "video_play_actions",
+                         "video_views_p100"],
+            )
+
+            for row in rows:
+                dims = row.get("dimensions", {})
+                if str(dims.get("campaign_id", "")) not in matching_ids:
+                    continue
+                mets = row.get("metrics", {})
+                all_rows.append({
+                    "date": pd.to_datetime(dims.get("stat_time_day")).date(),
+                    "region": dims.get("province_name", ""),
+                    "objective_type": objective_type,
+                    "spend": float(mets.get("spend", 0) or 0),
+                    "impressions": int(mets.get("impressions", 0) or 0),
+                    "video_views": int(mets.get("video_play_actions", 0) or 0),
+                    "video_completions": int(mets.get("video_views_p100", 0) or 0),
+                })
+
+            chunk_start = chunk_end + timedelta(days=1)
+
+        if not all_rows:
+            return pd.DataFrame(
+                columns=["date", "region", "objective_type", "spend",
+                         "impressions", "video_views", "video_completions"]
+            )
+
+        df = pd.DataFrame(all_rows)
+        # Aggregate across campaigns for same date+region
+        df = (
+            df.groupby(["date", "region", "objective_type"], as_index=False)
+            .agg({
+                "spend": "sum",
+                "impressions": "sum",
+                "video_views": "sum",
+                "video_completions": "sum",
+            })
+            .sort_values(["date", "region"])
+            .reset_index(drop=True)
+        )
+        logger.info(
+            "TikTok %s: %d rows, spend=%.2f", objective_type, len(df), df["spend"].sum()
+        )
+        return df
+
     def get_ad_account_info(self) -> dict[str, Any]:
         """Return metadata for the ad account linked to this access token.
 

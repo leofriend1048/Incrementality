@@ -57,6 +57,12 @@ class MMMOrchestrator:
         self._facebook = None
         self._youtube = None
         self._tiktok = None
+        self._tiktok_shop = None
+        self._pinterest = None
+        self._applovin = None
+        self._tatari = None
+        self._postscript = None
+        self._klaviyo = None
         self._northbeam = None
 
         if config.shopify:
@@ -82,6 +88,30 @@ class MMMOrchestrator:
                 config.tiktok.secret,
                 config.tiktok.access_token,
             )
+
+        if config.tiktok_shop:
+            from incrementality.connectors.tiktok_shop import TikTokShopConnector
+            self._tiktok_shop = TikTokShopConnector(config.tiktok_shop)
+
+        if config.pinterest:
+            from incrementality.connectors.pinterest import PinterestConnector
+            self._pinterest = PinterestConnector(config.pinterest)
+
+        if config.applovin:
+            from incrementality.connectors.applovin import AppLovinConnector
+            self._applovin = AppLovinConnector(config.applovin)
+
+        if config.tatari:
+            from incrementality.connectors.tatari import TatariConnector
+            self._tatari = TatariConnector(config.tatari)
+
+        if config.postscript:
+            from incrementality.connectors.postscript import PostscriptConnector
+            self._postscript = PostscriptConnector(config.postscript)
+
+        if config.klaviyo:
+            from incrementality.connectors.klaviyo import KlaviyoConnector
+            self._klaviyo = KlaviyoConnector(config.klaviyo)
 
         if config.northbeam:
             from incrementality.connectors.northbeam import NorthbeamConnector
@@ -117,7 +147,7 @@ class MMMOrchestrator:
         if self._shopify:
             try:
                 result["shopify"] = self._shopify.get_daily_revenue_by_dma(
-                    start_date.isoformat(), end_date.isoformat()
+                    start_date, end_date
                 )
                 logger.info("Shopify: %d rows", len(result["shopify"]))
             except Exception as exc:
@@ -130,7 +160,7 @@ class MMMOrchestrator:
         if self._amazon:
             try:
                 result["amazon"] = self._amazon.get_daily_revenue(
-                    start_date.isoformat(), end_date.isoformat()
+                    start_date, end_date
                 )
                 logger.info("Amazon: %d rows", len(result["amazon"]))
             except Exception as exc:
@@ -143,7 +173,7 @@ class MMMOrchestrator:
         if self._facebook:
             try:
                 result["facebook"] = self._facebook.fetch_spend_by_dma(
-                    start_date.isoformat(), end_date.isoformat()
+                    start_date, end_date
                 )
                 logger.info("Facebook: %d rows", len(result["facebook"]))
             except Exception as exc:
@@ -156,7 +186,7 @@ class MMMOrchestrator:
         if self._youtube:
             try:
                 result["youtube"] = self._youtube.fetch_spend_by_dma(
-                    start_date.isoformat(), end_date.isoformat()
+                    start_date, end_date
                 )
                 logger.info("YouTube: %d rows", len(result["youtube"]))
             except Exception as exc:
@@ -165,11 +195,11 @@ class MMMOrchestrator:
         else:
             result["youtube"] = pd.DataFrame()
 
-        # TikTok spend by region (state-level, mapped to DMA in tensor builder)
+        # TikTok performance spend by region (state-level)
         if self._tiktok:
             try:
                 result["tiktok"] = self._tiktok.get_daily_spend_by_region(
-                    start_date.isoformat(), end_date.isoformat()
+                    start_date, end_date
                 )
                 logger.info("TikTok: %d rows", len(result["tiktok"]))
             except Exception as exc:
@@ -177,6 +207,97 @@ class MMMOrchestrator:
                 result["tiktok"] = pd.DataFrame()
         else:
             result["tiktok"] = pd.DataFrame()
+
+        # TikTok GMV Max — filtered by campaign objective
+        if self._tiktok:
+            try:
+                result["tiktok_gmv_max"] = self._tiktok.get_daily_spend_by_objective(
+                    start_date, end_date, objective_type="GMV_MAX"
+                )
+                logger.info("TikTok GMV Max: %d rows", len(result["tiktok_gmv_max"]))
+            except Exception as exc:
+                pull_errors["tiktok_gmv_max"] = str(exc)
+                result["tiktok_gmv_max"] = pd.DataFrame()
+        else:
+            result["tiktok_gmv_max"] = pd.DataFrame()
+
+        # TikTok Shop — native commerce GMV
+        if self._tiktok_shop:
+            try:
+                result["tiktok_shop"] = self._tiktok_shop.get_daily_gmv(
+                    start_date, end_date
+                )
+                logger.info("TikTok Shop: %d rows", len(result["tiktok_shop"]))
+            except Exception as exc:
+                pull_errors["tiktok_shop"] = str(exc)
+                result["tiktok_shop"] = pd.DataFrame()
+        else:
+            result["tiktok_shop"] = pd.DataFrame()
+
+        # Pinterest spend by region
+        if self._pinterest:
+            try:
+                result["pinterest"] = self._pinterest.get_daily_spend_by_region(
+                    start_date, end_date
+                )
+                logger.info("Pinterest: %d rows", len(result["pinterest"]))
+            except Exception as exc:
+                pull_errors["pinterest"] = str(exc)
+                result["pinterest"] = pd.DataFrame()
+        else:
+            result["pinterest"] = pd.DataFrame()
+
+        # AppLovin national spend
+        if self._applovin:
+            try:
+                result["applovin"] = self._applovin.get_daily_national_spend(
+                    start_date, end_date
+                )
+                logger.info("AppLovin: %d rows", len(result["applovin"]))
+            except Exception as exc:
+                pull_errors["applovin"] = str(exc)
+                result["applovin"] = pd.DataFrame()
+        else:
+            result["applovin"] = pd.DataFrame()
+
+        # Tatari TV spend by DMA
+        if self._tatari:
+            try:
+                result["tatari"] = self._tatari.get_daily_spend_by_dma(
+                    start_date, end_date
+                )
+                logger.info("Tatari: %d rows", len(result["tatari"]))
+            except Exception as exc:
+                pull_errors["tatari"] = str(exc)
+                result["tatari"] = pd.DataFrame()
+        else:
+            result["tatari"] = pd.DataFrame()
+
+        # Postscript SMS national performance
+        if self._postscript:
+            try:
+                result["postscript_sms"] = self._postscript.get_daily_performance(
+                    start_date, end_date
+                )
+                logger.info("Postscript: %d rows", len(result["postscript_sms"]))
+            except Exception as exc:
+                pull_errors["postscript_sms"] = str(exc)
+                result["postscript_sms"] = pd.DataFrame()
+        else:
+            result["postscript_sms"] = pd.DataFrame()
+
+        # Klaviyo email national performance
+        if self._klaviyo:
+            try:
+                result["klaviyo_email"] = self._klaviyo.get_daily_performance(
+                    start_date, end_date
+                )
+                logger.info("Klaviyo: %d rows", len(result["klaviyo_email"]))
+            except Exception as exc:
+                pull_errors["klaviyo_email"] = str(exc)
+                result["klaviyo_email"] = pd.DataFrame()
+        else:
+            result["klaviyo_email"] = pd.DataFrame()
 
         # Northbeam MTA for prior calibration
         if self._northbeam:
@@ -200,8 +321,14 @@ class MMMOrchestrator:
     def load_cached_data(self) -> dict[str, pd.DataFrame]:
         """Load previously cached parquet files from data_dir."""
         result: dict[str, pd.DataFrame] = {}
-        sources = ["shopify", "amazon", "facebook", "youtube", "tiktok",
-                   "northbeam_attribution"]
+        sources = [
+            "shopify", "amazon",
+            "facebook", "youtube",
+            "tiktok", "tiktok_gmv_max", "tiktok_shop",
+            "pinterest", "applovin", "tatari",
+            "postscript_sms", "klaviyo_email",
+            "northbeam_attribution",
+        ]
         for src in sources:
             cache_path = self.data_dir / f"mmm_{src}.parquet"
             if cache_path.exists():
@@ -293,13 +420,27 @@ class MMMOrchestrator:
             shopify_df=data.get("shopify", pd.DataFrame()),
             amazon_df=data.get("amazon", pd.DataFrame()),
             spend_dfs={
+                # Meta — split Facebook performance vs awareness
                 "meta_perf": data.get("facebook", pd.DataFrame()),
                 "meta_aware": data.get("facebook", pd.DataFrame()),
+                # Google — split brand vs non-brand
                 "google_brand": data.get("youtube", pd.DataFrame()),
                 "google_nonbrand": data.get("youtube", pd.DataFrame()),
+                # TikTok channels
                 "tiktok": data.get("tiktok", pd.DataFrame()),
+                "tiktok_gmv_max": data.get("tiktok_gmv_max", pd.DataFrame()),
+                "tiktok_shop": data.get("tiktok_shop", pd.DataFrame()),
+                # Pinterest
+                "pinterest": data.get("pinterest", pd.DataFrame()),
+                # AppLovin (mobile / CTV)
+                "applovin": data.get("applovin", pd.DataFrame()),
+                # TV
+                "tatari": data.get("tatari", pd.DataFrame()),
+                # Amazon retail media (spend injected manually or via CSV)
                 "amz_sponsored": pd.DataFrame(),
-                "email_sms": pd.DataFrame(),
+                # Owned channels
+                "postscript_sms": data.get("postscript_sms", pd.DataFrame()),
+                "klaviyo_email": data.get("klaviyo_email", pd.DataFrame()),
             },
             promo_df=pd.DataFrame(),
             trends_df=pd.DataFrame(),
