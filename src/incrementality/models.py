@@ -325,6 +325,11 @@ class MMMChannelResult(BaseModel):
     roi_p90: float
     # Marginal ROI at current spend
     marginal_roi: float
+    # Causal incrementality metrics (from geo holdout or MMM-implied)
+    iroas: float = 0.0          # Incremental ROAS (causal ground truth when available)
+    iroas_source: str = "mmm"   # "geo_holdout" | "mmm" | "northbeam_calibrated"
+    incrementality_factor: float = 0.0  # IF = incremental_revenue / attributed_revenue
+    cpia: float = 0.0           # Cost Per Incremental Acquisition = spend / incremental_conversions
     # Adstock / saturation
     adstock_decay: float = 0.0
     saturation_alpha: float = 0.0

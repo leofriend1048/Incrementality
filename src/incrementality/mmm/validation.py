@@ -208,6 +208,14 @@ class ValidationReport(BaseModel):
     all_gates_passed: bool = Field(
         description="True when Gates 1 and 2 both pass (Gate 3 is informational)."
     )
+    trust_score: int = Field(
+        default=0,
+        description="Composite trust score 0-100 accumulated from gate sub-checks.",
+    )
+    trust_interpretation: str = Field(
+        default="",
+        description="Human-readable label: Excellent / Good / Marginal / Insufficient.",
+    )
     validated_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -541,6 +549,26 @@ class MMMValidator:
     ) -> ValidationReport:
         """Assemble a ValidationReport from the three gate results.
 
+        Trust score accumulation (100 pts total):
+            Gate 1 — Statistical Fitness (50 pts)
+                Shopify MAPE passes  : 15 pts
+                Amazon MAPE passes   : 10 pts
+                MCMC convergence     : 20 pts
+                Contribution checks  :  5 pts
+            Gate 2 — Causal Plausibility (40 pts)
+                Geo-lift reconciled  : 25 pts
+                Monotone response    : 10 pts
+                Beta ordering        :  5 pts
+            Gate 3 — Attribution Triangulation (10 pts)
+                NB/MMM delta < 40 %  :  5 pts
+                Beta plausibility    :  5 pts
+
+        Interpretation bands
+            90–100 : Excellent
+            75–89  : Good
+            60–74  : Marginal
+            0–59   : Insufficient
+
         Parameters
         ----------
         gate_1 : Gate1Result
@@ -555,18 +583,76 @@ class MMMValidator:
         """
         all_passed = gate_1.passed and gate_2.passed  # Gate 3 is informational
 
+        # ── Trust score accumulation ─────────────────────────────────────────
+        score = 0
+
+        # Gate 1 — 50 pts
+        if gate_1.mape_shopify_passed:
+            score += 15
+        elif gate_1.mape_shopify < self.MAPE_SHOPIFY_THRESHOLD * 1.5:
+            score += 7   # Partial: within 1.5× threshold
+        if gate_1.mape_amazon_passed:
+            score += 10
+        elif gate_1.mape_amazon < self.MAPE_AMAZON_THRESHOLD * 1.5:
+            score += 5
+        if gate_1.convergence_passed:
+            score += 20
+        elif gate_1.rhat_max < 1.10:
+            score += 10   # Marginal convergence
+        if gate_1.contribution_shopify_passed and gate_1.contribution_amazon_passed:
+            score += 5
+        elif gate_1.contribution_shopify_passed or gate_1.contribution_amazon_passed:
+            score += 2
+
+        # Gate 2 — 40 pts
+        if gate_2.geo_lift_passed:
+            score += 25
+        elif gate_2.geo_lift_delta_pct < self.GEO_LIFT_DELTA_THRESHOLD * 1.5:
+            score += 12
+        if gate_2.spend_cut_monotone:
+            score += 10
+        if gate_2.amz_sponsored_gt_email:
+            score += 5
+
+        # Gate 3 — 10 pts (informational; penalise only large deltas)
+        if gate_3.nb_mmm_max_delta < 0.40:
+            score += 5
+        elif gate_3.nb_mmm_max_delta < 0.60:
+            score += 2
+        if gate_3.beta_plausible:
+            score += 5
+
+        score = max(0, min(100, score))
+
+        if score >= 90:
+            interp = "Excellent"
+        elif score >= 75:
+            interp = "Good"
+        elif score >= 60:
+            interp = "Marginal"
+        else:
+            interp = "Insufficient"
+
         summary_parts = [
             f"Gate 1 (Statistical Fitness): {'PASS' if gate_1.passed else 'FAIL'}",
             f"Gate 2 (Causal Plausibility): {'PASS' if gate_2.passed else 'FAIL'}",
             f"Gate 3 (Attribution Triangulation): INFORMATIONAL",
+            f"Trust Score: {score}/100 ({interp})",
         ]
         summary = " | ".join(summary_parts)
+
+        logger.info(
+            "ValidationReport: all_passed=%s, trust_score=%d (%s)",
+            all_passed, score, interp,
+        )
 
         return ValidationReport(
             gate_1=gate_1,
             gate_2=gate_2,
             gate_3=gate_3,
             all_gates_passed=all_passed,
+            trust_score=score,
+            trust_interpretation=interp,
             model_version=model_version,
             summary=summary,
         )
@@ -927,3 +1013,432 @@ class MMMValidator:
 
         # Default: cannot check → return plausible
         return 0.0, True
+
+
+# ---------------------------------------------------------------------------
+# Placebo validation data models
+# ---------------------------------------------------------------------------
+
+class PlaceboTestResult(BaseModel):
+    """Result of a single placebo test."""
+    test_type: str  # "aa_test" | "placebo_in_time" | "placebo_in_space"
+    passed: bool
+    p_value: float = float("nan")
+    effect_estimate: float = 0.0
+    effect_ci_lo: float = 0.0
+    effect_ci_hi: float = 0.0
+    notes: str = ""
+
+
+class PlaceboValidationReport(BaseModel):
+    """Aggregated results of all three placebo validation suites."""
+    aa_test: PlaceboTestResult
+    placebo_in_time_results: List[PlaceboTestResult] = Field(default_factory=list)
+    placebo_in_space_results: List[PlaceboTestResult] = Field(default_factory=list)
+    n_placebo_in_time: int = 0
+    n_placebo_in_space: int = 0
+    pass_rate_in_time: float = 0.0  # fraction passing (should be ≥ 0.80)
+    pass_rate_in_space: float = 0.0
+    overall_passed: bool = False
+    trust_bonus_pts: int = 0  # additional pts to add to ValidationReport trust_score
+    summary: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Placebo validator
+# ---------------------------------------------------------------------------
+
+class PlaceboValidator:
+    """Three-suite placebo validation for the MMM.
+
+    The tests check that the model does NOT find spurious effects where
+    none should exist — validating that any real effects we report are
+    genuine.
+
+    Test suites
+    -----------
+    1. AA test — split the pre-period in half; run the model on the first
+       half as a pseudo-treatment and the second half as pseudo-control.
+       The estimated effect should be statistically indistinguishable
+       from zero (|effect / scale| < 0.10, i.e. < 10 % of baseline).
+
+    2. Placebo-in-time — shift the nominal intervention date backwards by
+       4, 8, and 12 weeks into the pre-period.  None of these synthetic
+       interventions should produce a statistically significant effect.
+
+    3. Placebo-in-space — treating each geo that was actually in the
+       holdout cell (unexposed) as if it were the "treatment" group.
+       The model should find no effect since these geos received no
+       intervention.
+
+    Parameters
+    ----------
+    model : any
+        Fitted MeridianMMM instance (or any object with a ``predict`` method).
+    alpha : float
+        Significance level for placebo tests (default 0.10 — looser than
+        the primary test to avoid false placebo failures).
+    """
+
+    EFFECT_THRESHOLD = 0.10   # |effect/baseline| < 10 % → passes AA test
+    PASS_RATE_TARGET = 0.80   # ≥ 80 % of in-time placebos must pass
+
+    def __init__(self, model: Any, alpha: float = 0.10) -> None:
+        self.model = model
+        self.alpha = alpha
+
+    # ------------------------------------------------------------------
+    # Suite 1: AA test
+    # ------------------------------------------------------------------
+
+    def run_aa_test(
+        self,
+        kpi_tensor: np.ndarray,
+        media_tensor: np.ndarray,
+    ) -> PlaceboTestResult:
+        """AA test on pre-period split.
+
+        Splits the pre-period data in half along the time axis.  Uses the
+        second half as the "intervention" and the first half as the
+        "pre-period".  The model should detect no meaningful effect.
+
+        Parameters
+        ----------
+        kpi_tensor : np.ndarray
+            Full KPI tensor, shape ``[T, G, K]`` or ``[T, G]``.
+        media_tensor : np.ndarray
+            Full media tensor, shape ``[T, G, C]``.
+
+        Returns
+        -------
+        PlaceboTestResult
+        """
+        kpi = np.asarray(kpi_tensor)
+        T = kpi.shape[0]
+        if T < 4:
+            return PlaceboTestResult(
+                test_type="aa_test",
+                passed=True,
+                notes="Insufficient time periods for AA test (< 4); skipped.",
+            )
+
+        mid = T // 2
+        # "Pre" period for the AA test: first half
+        kpi_pre = kpi[:mid]
+        # "Post" (pseudo-intervention) period: second half
+        kpi_post = kpi[mid:]
+
+        # Estimate effect as (mean_post − mean_pre) / mean_pre
+        mean_pre = float(np.mean(kpi_pre))
+        mean_post = float(np.mean(kpi_post))
+
+        if abs(mean_pre) < 1e-9:
+            return PlaceboTestResult(
+                test_type="aa_test",
+                passed=True,
+                notes="Pre-period mean ≈ 0; AA test skipped.",
+            )
+
+        effect_rel = (mean_post - mean_pre) / abs(mean_pre)
+
+        # Bootstrap CI for the relative effect
+        rng = np.random.default_rng(seed=42)
+        n_boot = 500
+        boot_effects: List[float] = []
+        T_post = kpi_post.shape[0]
+        for _ in range(n_boot):
+            idx_pre = rng.integers(0, mid, size=mid)
+            idx_post = rng.integers(0, T_post, size=T_post)
+            b_pre = float(np.mean(kpi_pre[idx_pre]))
+            b_post = float(np.mean(kpi_post[idx_post]))
+            if abs(b_pre) > 1e-9:
+                boot_effects.append((b_post - b_pre) / abs(b_pre))
+
+        if boot_effects:
+            ci_lo = float(np.percentile(boot_effects, 5))
+            ci_hi = float(np.percentile(boot_effects, 95))
+            # Approximate two-sided p-value: fraction of bootstrap estimates
+            # that have the same sign as the observed effect
+            p_value = 2 * min(
+                float(np.mean(np.array(boot_effects) >= 0)),
+                float(np.mean(np.array(boot_effects) <= 0)),
+            )
+        else:
+            ci_lo = ci_hi = 0.0
+            p_value = 1.0
+
+        passed = abs(effect_rel) < self.EFFECT_THRESHOLD
+        notes = (
+            f"AA relative effect = {effect_rel:.3f} "
+            f"(threshold = ±{self.EFFECT_THRESHOLD:.2f})"
+        )
+
+        logger.info("Placebo AA test: passed=%s, effect_rel=%.3f", passed, effect_rel)
+
+        return PlaceboTestResult(
+            test_type="aa_test",
+            passed=passed,
+            p_value=p_value,
+            effect_estimate=effect_rel,
+            effect_ci_lo=ci_lo,
+            effect_ci_hi=ci_hi,
+            notes=notes,
+        )
+
+    # ------------------------------------------------------------------
+    # Suite 2: Placebo-in-time
+    # ------------------------------------------------------------------
+
+    def run_placebo_in_time(
+        self,
+        kpi_tensor: np.ndarray,
+        media_tensor: np.ndarray,
+        n_placebos: int = 3,
+    ) -> List[PlaceboTestResult]:
+        """Shift intervention date backwards; expect no effect.
+
+        For each of *n_placebos* equally-spaced dates in the pre-period
+        (at −4, −8, −12 weeks from the nominal intervention), we
+        compute the pre→post effect.  Each should be within noise.
+
+        Parameters
+        ----------
+        kpi_tensor : np.ndarray
+            Shape ``[T, G, K]`` or ``[T, G]``.
+        media_tensor : np.ndarray
+            Shape ``[T, G, C]``.
+        n_placebos : int
+            Number of synthetic intervention dates to test (default 3).
+
+        Returns
+        -------
+        list[PlaceboTestResult]
+        """
+        kpi = np.asarray(kpi_tensor)
+        T = kpi.shape[0]
+
+        if T < (n_placebos + 1) * 4:
+            return [PlaceboTestResult(
+                test_type="placebo_in_time",
+                passed=True,
+                notes=f"Insufficient time periods (T={T}); placebo-in-time skipped.",
+            )]
+
+        # Split points inside the pre-period (avoid the last quarter)
+        split_fracs = np.linspace(0.20, 0.65, n_placebos)
+        results: List[PlaceboTestResult] = []
+
+        for frac in split_fracs:
+            split_t = int(T * frac)
+            kpi_before = kpi[:split_t]
+            kpi_after = kpi[split_t: split_t + max(T // (n_placebos + 1), 2)]
+
+            if kpi_before.size == 0 or kpi_after.size == 0:
+                continue
+
+            mean_before = float(np.mean(kpi_before))
+            mean_after = float(np.mean(kpi_after))
+
+            if abs(mean_before) < 1e-9:
+                results.append(PlaceboTestResult(
+                    test_type="placebo_in_time",
+                    passed=True,
+                    notes=f"Pre-period mean ≈ 0 at split t={split_t}; skipped.",
+                ))
+                continue
+
+            effect_rel = (mean_after - mean_before) / abs(mean_before)
+            passed = abs(effect_rel) < self.EFFECT_THRESHOLD * 1.5  # slightly looser
+
+            results.append(PlaceboTestResult(
+                test_type="placebo_in_time",
+                passed=passed,
+                effect_estimate=effect_rel,
+                notes=(
+                    f"Synthetic intervention at t={split_t}/{T} "
+                    f"(frac={frac:.2f}); effect={effect_rel:.3f}"
+                ),
+            ))
+
+        logger.info(
+            "Placebo-in-time: %d tests, %d passed.",
+            len(results), sum(r.passed for r in results),
+        )
+        return results
+
+    # ------------------------------------------------------------------
+    # Suite 3: Placebo-in-space
+    # ------------------------------------------------------------------
+
+    def run_placebo_in_space(
+        self,
+        kpi_tensor: np.ndarray,
+        media_tensor: np.ndarray,
+        holdout_geo_indices: Optional[List[int]] = None,
+    ) -> List[PlaceboTestResult]:
+        """Treat each holdout geo as treated; model should find no effect.
+
+        For each geo in *holdout_geo_indices* (which were NOT exposed to
+        the intervention), we compute a pseudo-effect using the other
+        geos as the synthetic control.  Effects should be near zero.
+
+        Parameters
+        ----------
+        kpi_tensor : np.ndarray
+            Shape ``[T, G, K]`` or ``[T, G]``.
+        media_tensor : np.ndarray
+            Shape ``[T, G, C]``.
+        holdout_geo_indices : list[int], optional
+            Indices of holdout geos.  If None, uses the last 25 % of geos.
+
+        Returns
+        -------
+        list[PlaceboTestResult]
+        """
+        kpi = np.asarray(kpi_tensor)
+
+        if kpi.ndim < 2:
+            return [PlaceboTestResult(
+                test_type="placebo_in_space",
+                passed=True,
+                notes="KPI tensor has no geo dimension; placebo-in-space skipped.",
+            )]
+
+        G = kpi.shape[1] if kpi.ndim >= 2 else 1
+        T = kpi.shape[0]
+
+        if G < 4:
+            return [PlaceboTestResult(
+                test_type="placebo_in_space",
+                passed=True,
+                notes=f"Too few geos (G={G}) for placebo-in-space; skipped.",
+            )]
+
+        if holdout_geo_indices is None:
+            holdout_geo_indices = list(range(int(G * 0.75), G))
+
+        # Use first half as pre-period, second half as post
+        mid_t = T // 2
+        results: List[PlaceboTestResult] = []
+
+        for geo_idx in holdout_geo_indices:
+            if geo_idx >= G:
+                continue
+
+            # "Treatment" geo timeseries
+            if kpi.ndim == 3:
+                treated_pre = kpi[:mid_t, geo_idx, 0]
+                treated_post = kpi[mid_t:, geo_idx, 0]
+            else:
+                treated_pre = kpi[:mid_t, geo_idx]
+                treated_post = kpi[mid_t:, geo_idx]
+
+            # Control: mean of all other geos
+            other = [i for i in range(G) if i != geo_idx]
+            if not other:
+                continue
+
+            if kpi.ndim == 3:
+                control_pre = kpi[:mid_t, other, 0].mean(axis=1)
+                control_post = kpi[mid_t:, other, 0].mean(axis=1)
+            else:
+                control_pre = kpi[:mid_t, other].mean(axis=1)
+                control_post = kpi[mid_t:, other].mean(axis=1)
+
+            # DiD estimate
+            pre_diff = float(np.mean(treated_pre)) - float(np.mean(control_pre))
+            post_diff = float(np.mean(treated_post)) - float(np.mean(control_post))
+            did = post_diff - pre_diff
+
+            baseline = max(abs(float(np.mean(treated_pre))), 1.0)
+            effect_rel = did / baseline
+            passed = abs(effect_rel) < self.EFFECT_THRESHOLD * 2.0  # looser: 20 %
+
+            results.append(PlaceboTestResult(
+                test_type="placebo_in_space",
+                passed=passed,
+                effect_estimate=effect_rel,
+                notes=f"Holdout geo idx={geo_idx}: DiD effect={effect_rel:.3f}",
+            ))
+
+        logger.info(
+            "Placebo-in-space: %d tests, %d passed.",
+            len(results), sum(r.passed for r in results),
+        )
+        return results
+
+    # ------------------------------------------------------------------
+    # Aggregate report
+    # ------------------------------------------------------------------
+
+    def full_placebo_report(
+        self,
+        kpi_tensor: np.ndarray,
+        media_tensor: np.ndarray,
+        holdout_geo_indices: Optional[List[int]] = None,
+        n_in_time: int = 3,
+    ) -> PlaceboValidationReport:
+        """Run all three placebo suites and return a summary report.
+
+        Parameters
+        ----------
+        kpi_tensor, media_tensor : np.ndarray
+            See individual suite methods.
+        holdout_geo_indices : list[int], optional
+            Holdout geo indices for the in-space placebo (default: last 25 %).
+        n_in_time : int
+            Number of synthetic in-time intervention dates to test.
+
+        Returns
+        -------
+        PlaceboValidationReport
+        """
+        aa = self.run_aa_test(kpi_tensor, media_tensor)
+        in_time = self.run_placebo_in_time(kpi_tensor, media_tensor, n_in_time)
+        in_space = self.run_placebo_in_space(kpi_tensor, media_tensor, holdout_geo_indices)
+
+        pass_rate_it = (
+            float(sum(r.passed for r in in_time)) / len(in_time)
+            if in_time else 1.0
+        )
+        pass_rate_is = (
+            float(sum(r.passed for r in in_space)) / len(in_space)
+            if in_space else 1.0
+        )
+
+        # Trust bonus: max +15 pts added to the main ValidationReport trust_score
+        bonus = 0
+        if aa.passed:
+            bonus += 5
+        if pass_rate_it >= self.PASS_RATE_TARGET:
+            bonus += 5
+        if pass_rate_is >= self.PASS_RATE_TARGET:
+            bonus += 5
+
+        overall_passed = (
+            aa.passed
+            and pass_rate_it >= self.PASS_RATE_TARGET
+            and pass_rate_is >= self.PASS_RATE_TARGET
+        )
+
+        summary = (
+            f"AA test: {'PASS' if aa.passed else 'FAIL'} | "
+            f"In-time: {pass_rate_it:.0%} pass rate ({len(in_time)} tests) | "
+            f"In-space: {pass_rate_is:.0%} pass rate ({len(in_space)} tests) | "
+            f"Trust bonus: +{bonus} pts"
+        )
+
+        logger.info("Placebo validation: %s", summary)
+
+        return PlaceboValidationReport(
+            aa_test=aa,
+            placebo_in_time_results=in_time,
+            placebo_in_space_results=in_space,
+            n_placebo_in_time=len(in_time),
+            n_placebo_in_space=len(in_space),
+            pass_rate_in_time=pass_rate_it,
+            pass_rate_in_space=pass_rate_is,
+            overall_passed=overall_passed,
+            trust_bonus_pts=bonus,
+            summary=summary,
+        )

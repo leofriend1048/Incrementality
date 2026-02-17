@@ -419,6 +419,116 @@ class BudgetOptimizer:
         return allocation, f"scipy-L-BFGS-B-{result.message}"
 
     # ------------------------------------------------------------------
+    # Causal iROAS calibration
+    # ------------------------------------------------------------------
+
+    def calibrate_from_iroas(
+        self,
+        channel: str,
+        iroas_causal: float,
+        current_spend: float,
+        outcome: str = "shopify",
+    ) -> bool:
+        """Anchor the Hill curve scale for *channel* to a causal iROAS estimate.
+
+        Re-scales the Hill curve so that the marginal ROI at *current_spend*
+        equals *iroas_causal* — grounding the optimizer in geo holdout
+        ground truth rather than purely Bayesian priors.
+
+        When geo holdout iROAS data is available this should be called for
+        each validated channel before running ``optimize()``.
+
+        Parameters
+        ----------
+        channel : str
+            Channel name (must already be in saturation_curves).
+        iroas_causal : float
+            Causal incremental ROAS measured by geo holdout test.
+        current_spend : float
+            Current weekly spend on this channel (dollars).
+        outcome : str
+            Outcome to calibrate ("shopify" | "amazon").
+
+        Returns
+        -------
+        bool
+            True if the calibration updated the curve, False if the channel
+            or outcome was not found.
+        """
+        curve = self._curves.get(channel, {}).get(outcome)
+        if curve is None:
+            logger.warning(
+                "calibrate_from_iroas: channel=%s outcome=%s not found; skipping.",
+                channel, outcome,
+            )
+            return False
+
+        if current_spend <= 0 or iroas_causal <= 0:
+            logger.debug(
+                "calibrate_from_iroas: channel=%s skipped (spend=%.0f, iroas=%.3f).",
+                channel, current_spend, iroas_causal,
+            )
+            return False
+
+        # Current marginal ROI at current_spend (uses Δ = 1 % of spend or $100)
+        delta = max(current_spend * 0.01, 100.0)
+        current_mroi = curve.marginal_roi(current_spend, delta)
+        if current_mroi < 1e-9:
+            logger.debug(
+                "calibrate_from_iroas: channel=%s current_mroi≈0; skipping.", channel
+            )
+            return False
+
+        # Scale the Hill curve scale parameter so that mroi(current_spend) = iroas_causal
+        adjustment = iroas_causal / current_mroi
+        new_scale = curve.scale * adjustment
+        curve.scale = max(new_scale, 1e-6)  # guard against negative scale
+        logger.info(
+            "Calibrated %s/%s: scale %.4f → %.4f (iROAS=%.3f, adjustment=%.3f)",
+            channel, outcome, curve.scale / adjustment, curve.scale,
+            iroas_causal, adjustment,
+        )
+        return True
+
+    def calibrate_all_from_iroas(
+        self,
+        iroas_by_channel: Dict[str, float],
+        spend_by_channel: Dict[str, float],
+        outcomes: Optional[List[str]] = None,
+    ) -> Dict[str, bool]:
+        """Batch calibration: call ``calibrate_from_iroas`` for each channel.
+
+        Parameters
+        ----------
+        iroas_by_channel : dict
+            Channel → causal iROAS (from geo holdout results).
+        spend_by_channel : dict
+            Channel → current spend (dollars).
+        outcomes : list[str], optional
+            Outcomes to calibrate.  Defaults to ``["shopify", "amazon"]``.
+
+        Returns
+        -------
+        dict
+            Channel → bool indicating whether calibration succeeded.
+        """
+        outcomes = outcomes or ["shopify", "amazon"]
+        results: Dict[str, bool] = {}
+        for ch, iroas in iroas_by_channel.items():
+            spend = spend_by_channel.get(ch, 0.0)
+            ok = any(
+                self.calibrate_from_iroas(ch, iroas, spend, outcome=out)
+                for out in outcomes
+            )
+            results[ch] = ok
+        calibrated = [c for c, ok in results.items() if ok]
+        logger.info(
+            "calibrate_all_from_iroas: %d/%d channels calibrated: %s",
+            len(calibrated), len(results), calibrated,
+        )
+        return results
+
+    # ------------------------------------------------------------------
     # Posterior uncertainty: ±1 SD allocation bounds
     # ------------------------------------------------------------------
 
@@ -426,25 +536,98 @@ class BudgetOptimizer:
         self,
         allocation: Dict[str, float],
         total_budget: float,
+        posterior_sigma: Optional[Dict[str, float]] = None,
     ) -> Tuple[Dict[str, float], Dict[str, float]]:
         """Compute ±1 posterior SD bounds on optimal allocation.
 
-        We approximate uncertainty by perturbing the Hill curve scale
-        parameter by ±1 SD (assumed 15 % of the scale, matching PRD
-        prior_sigma defaults) and re-optimising.  This is a first-order
-        approximation suitable for dashboards.
+        When *posterior_sigma* is provided (a dict mapping channel →
+        fractional standard deviation of the Hill-curve scale parameter)
+        the method re-optimises the budget with the scale perturbed by
+        ±1 SD and uses the resulting allocations as the bounds.  This
+        correctly propagates posterior uncertainty through the non-linear
+        Hill saturation function.
+
+        When *posterior_sigma* is not provided the method falls back to a
+        simple ±15 % perturbation on the allocation itself — a first-order
+        approximation that avoids an extra CVXPY solve.
+
+        Parameters
+        ----------
+        allocation : dict
+            Point-optimal spend per channel.
+        total_budget : float
+            Total budget constraint.
+        posterior_sigma : dict, optional
+            Channel → fractional SD of the Hill-curve scale parameter
+            (e.g. ``{"meta_perf": 0.12, "google_brand": 0.09}``).
+            Typically obtained from the Meridian posterior.
+
+        Returns
+        -------
+        tuple[dict, dict]
+            ``(lower, upper)`` allocation dicts.
         """
+        if not posterior_sigma:
+            # Fallback: flat ±15 % on allocation
+            sigma_frac = 0.15
+            lower = {ch: max(allocation.get(ch, 0.0) * (1 - sigma_frac), 0.0)
+                     for ch in self.channels}
+            upper = {ch: min(allocation.get(ch, 0.0) * (1 + sigma_frac), total_budget)
+                     for ch in self.channels}
+            return lower, upper
+
+        # Posterior-based: re-optimise with scale perturbed by ±1 SD
         lower: Dict[str, float] = {}
         upper: Dict[str, float] = {}
-        sigma_frac = 0.15  # 15 % — matches default prior_sigma
 
-        for ch in self.channels:
-            spend = allocation.get(ch, 0.0)
-            # Sensitivity: compute revenue at spend ± 15 %
-            lo_spend = spend * (1 - sigma_frac)
-            hi_spend = min(spend * (1 + sigma_frac), total_budget)
-            lower[ch] = max(lo_spend, 0.0)
-            upper[ch] = hi_spend
+        # Save original scales
+        original_scales: Dict[str, Dict[str, float]] = {
+            ch: {out: curve.scale for out, curve in outcomes.items()}
+            for ch, outcomes in self._curves.items()
+        }
+
+        try:
+            # --- Lower bound: pessimistic (−1 SD on all scales) ---
+            for ch in self.channels:
+                sigma = posterior_sigma.get(ch, 0.15)
+                for out, curve in self._curves.get(ch, {}).items():
+                    curve.scale = max(original_scales[ch][out] * (1 - sigma), 1e-6)
+
+            alloc_lo, _ = (
+                self._optimize_cvxpy(total_budget, 0.7, 0.3, {}, 0.55)
+                if _CVXPY_AVAILABLE
+                else self._optimize_scipy(total_budget, 0.7, 0.3, {}, 0.55)
+            )
+
+            # --- Upper bound: optimistic (+1 SD on all scales) ---
+            for ch in self.channels:
+                sigma = posterior_sigma.get(ch, 0.15)
+                for out, curve in self._curves.get(ch, {}).items():
+                    curve.scale = original_scales[ch][out] * (1 + sigma)
+
+            alloc_hi, _ = (
+                self._optimize_cvxpy(total_budget, 0.7, 0.3, {}, 0.55)
+                if _CVXPY_AVAILABLE
+                else self._optimize_scipy(total_budget, 0.7, 0.3, {}, 0.55)
+            )
+
+            for ch in self.channels:
+                lower[ch] = max(alloc_lo.get(ch, 0.0), 0.0)
+                upper[ch] = min(alloc_hi.get(ch, total_budget), total_budget)
+
+        except Exception as exc:
+            logger.warning(
+                "Posterior-based allocation bounds failed (%s); using ±15 %% fallback.", exc
+            )
+            for ch in self.channels:
+                spend = allocation.get(ch, 0.0)
+                lower[ch] = max(spend * 0.85, 0.0)
+                upper[ch] = min(spend * 1.15, total_budget)
+        finally:
+            # Restore original scales
+            for ch in self.channels:
+                for out, curve in self._curves.get(ch, {}).items():
+                    curve.scale = original_scales.get(ch, {}).get(out, curve.scale)
 
         return lower, upper
 
@@ -459,6 +642,7 @@ class BudgetOptimizer:
         amazon_weight: float = 0.3,
         min_floors: Optional[Dict[str, float]] = None,
         max_concentration: float = 0.55,
+        posterior_sigma: Optional[Dict[str, float]] = None,
     ) -> OptimizationResult:
         """Solve the budget allocation problem.
 
@@ -476,6 +660,10 @@ class BudgetOptimizer:
         max_concentration : float
             Maximum fraction of total budget that can go to any single
             channel (default 0.55 = 55 %).
+        posterior_sigma : dict, optional
+            Channel → fractional SD of the Hill curve scale parameter.
+            When provided, allocation CIs are computed via re-optimisation
+            rather than the flat ±15 % fallback.
 
         Returns
         -------
@@ -520,8 +708,10 @@ class BudgetOptimizer:
         total_spend = sum(allocation.values())
         blended_roas = blended_rev / total_spend if total_spend > 0 else 0.0
 
-        # Uncertainty bounds
-        alloc_lower, alloc_upper = self._compute_allocation_bounds(allocation, total_budget)
+        # Uncertainty bounds (posterior-based when sigma info is available)
+        alloc_lower, alloc_upper = self._compute_allocation_bounds(
+            allocation, total_budget, posterior_sigma=posterior_sigma
+        )
 
         logger.info(
             "Optimization complete: budget=%.0f, blended_rev=%.0f, "

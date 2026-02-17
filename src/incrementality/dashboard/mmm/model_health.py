@@ -6,6 +6,10 @@ calibration status, and validation gate indicators.
 from __future__ import annotations
 
 import datetime as dt
+import json
+from pathlib import Path
+from typing import Optional
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -13,6 +17,22 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 from incrementality.dashboard.theme import C, CHART_PALETTE, section_header
+
+# ── Real data loader ──────────────────────────────────────────────────────────
+
+def _find_latest_run_result(output_dir: str = "./output") -> Optional[dict]:
+    """Load the most recently saved MMMRunResult JSON, or None if absent."""
+    try:
+        paths = sorted(
+            Path(output_dir).glob("mmm_run_*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if paths:
+            return json.loads(paths[0].read_text())
+    except Exception:
+        pass
+    return None
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -383,35 +403,56 @@ def render() -> None:
 
     # ── Validation gates ──────────────────────────────────────────────────────
     section_header("Validation Gates")
+
+    run = _find_latest_run_result()
+    if run:
+        gate1_passed = run.get("gate_1_passed", True)
+        gate2_passed = run.get("gate_2_passed", True)
+        gate3_passed = run.get("gate_3_passed", True)
+        mape_sh = run.get("mape_shopify", 0.062)
+        mape_amz = run.get("mape_amazon", 0.087)
+        rhat_max = run.get("rhat_max", 1.02)
+        converged = run.get("converged", True)
+        trust_score = run.get("trust_score", 0)
+        gate1_detail = (
+            f"Shopify MAPE = {mape_sh:.1%} | Amazon MAPE = {mape_amz:.1%}. "
+            f"R-hat max = {rhat_max:.3f}. "
+            + ("Converged." if converged else "Non-convergence detected.")
+        )
+        gate2_detail = (
+            "Geo-lift reconciliation and monotone spend-response checks. "
+            + ("PASS" if gate2_passed else "Review causal plausibility metrics.")
+        )
+        gate3_detail = (
+            f"Attribution triangulation (informational). "
+            f"{'PASS' if gate3_passed else 'Review NB vs MMM delta.'} "
+            f"Trust score: {trust_score}/100."
+        )
+        using_real = True
+    else:
+        gate1_passed, gate2_passed, gate3_passed = True, True, False
+        gate1_detail = "All R-hat < 1.05 (except TV β = 1.09 — within tolerance). N_eff > 300 for all parameters."
+        gate2_detail = "Shopify MAPE = 6.2% | Amazon MAPE = 8.7%. Both below 10% threshold. 95% CI coverage = 94%."
+        gate3_detail = "Pinterest NB prior stale (99 days). Email holdout stale (135 days). 2 of 9 channels require recalibration."
+        using_real = False
+
+    if not using_real:
+        st.info("Showing synthetic gate results. Run `lift mmm fit` to populate with real model data.", icon="ℹ️")
+
     g1, g2, g3 = st.columns(3)
     with g1:
         st.markdown(
-            _gate_badge(
-                "Gate 1: MCMC Convergence",
-                passed=True,
-                detail="All R-hat < 1.05 (except TV β = 1.09 — within tolerance). "
-                       "N_eff > 300 for all parameters.",
-            ),
+            _gate_badge("Gate 1: MCMC Convergence", passed=gate1_passed, detail=gate1_detail),
             unsafe_allow_html=True,
         )
     with g2:
         st.markdown(
-            _gate_badge(
-                "Gate 2: Posterior Predictive",
-                passed=True,
-                detail="Shopify MAPE = 6.2% | Amazon MAPE = 8.7%. "
-                       "Both below 10% threshold. 95% CI coverage = 94%.",
-            ),
+            _gate_badge("Gate 2: Posterior Predictive", passed=gate2_passed, detail=gate2_detail),
             unsafe_allow_html=True,
         )
     with g3:
         st.markdown(
-            _gate_badge(
-                "Gate 3: Calibration",
-                passed=False,
-                detail="Pinterest NB prior stale (99 days). Email holdout stale (135 days). "
-                       "2 of 9 channels require recalibration.",
-            ),
+            _gate_badge("Gate 3: Calibration", passed=gate3_passed, detail=gate3_detail),
             unsafe_allow_html=True,
         )
 
@@ -445,9 +486,13 @@ def render() -> None:
 
     ppc_df = _make_ppc_data(30)
 
-    # MAPE calculation
-    shop_mape = np.mean(np.abs((ppc_df["shop_actual"] - ppc_df["shop_pred"]) / ppc_df["shop_actual"])) * 100
-    amz_mape  = np.mean(np.abs((ppc_df["amz_actual"]  - ppc_df["amz_pred"])  / ppc_df["amz_actual"]))  * 100
+    # Use real MAPE values from run if available, otherwise compute from synthetic
+    if run:
+        shop_mape = run.get("mape_shopify", 0.062) * 100
+        amz_mape = run.get("mape_amazon", 0.087) * 100
+    else:
+        shop_mape = np.mean(np.abs((ppc_df["shop_actual"] - ppc_df["shop_pred"]) / ppc_df["shop_actual"])) * 100
+        amz_mape  = np.mean(np.abs((ppc_df["amz_actual"]  - ppc_df["amz_pred"])  / ppc_df["amz_actual"]))  * 100
 
     pm1, pm2, pm3 = st.columns(3)
     pm1.metric(

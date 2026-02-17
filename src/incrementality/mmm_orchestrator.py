@@ -699,3 +699,70 @@ def _build_channel_results(
         ))
 
     return results
+
+
+def compute_iroas_metrics(
+    channel_results: list[MMMChannelResult],
+    spend_by_channel: dict[str, float],
+    geo_holdout_iroas: dict[str, float] | None = None,
+    avg_order_value: float = 75.0,
+) -> list[MMMChannelResult]:
+    """Populate iROAS, Incrementality Factor, and CPIA on each MMMChannelResult.
+
+    Uses geo holdout iROAS as ground truth when available; falls back to the
+    MMM posterior ROI as the best available causal estimate.
+
+    Parameters
+    ----------
+    channel_results : list[MMMChannelResult]
+        Raw channel results (iROAS fields are 0.0 on input).
+    spend_by_channel : dict[str, float]
+        Actual spend per channel name for the measurement period (dollars).
+    geo_holdout_iroas : dict[str, float], optional
+        Channel → causal iROAS measured by geo holdout.  When present this
+        overrides the MMM-implied iROAS and sets ``iroas_source="geo_holdout"``.
+    avg_order_value : float
+        Average order value in dollars (used to convert revenue → conversions
+        for the CPIA calculation).
+
+    Returns
+    -------
+    list[MMMChannelResult]
+        Same list with iROAS, incrementality_factor, and cpia populated.
+    """
+    geo_holdout_iroas = geo_holdout_iroas or {}
+    updated: list[MMMChannelResult] = []
+
+    for cr in channel_results:
+        spend = spend_by_channel.get(cr.channel, 0.0)
+
+        # iROAS: prefer geo holdout truth, fall back to MMM posterior ROI
+        if cr.channel in geo_holdout_iroas:
+            iroas = float(geo_holdout_iroas[cr.channel])
+            iroas_source = "geo_holdout"
+        else:
+            iroas = cr.roi_mean  # MMM posterior mean ROI as proxy for iROAS
+            iroas_source = "mmm"
+
+        # Incrementality Factor: incremental / attributed
+        # attributed = contribution_mean (MMM posterior); incremental = iROAS × spend
+        attributed = max(cr.contribution_mean, 1e-6)
+        incremental = iroas * spend if spend > 0 else attributed
+        incrementality_factor = incremental / attributed if attributed > 0 else 0.0
+        # Clamp to [0, 2] to guard against data quality issues
+        incrementality_factor = max(0.0, min(2.0, incrementality_factor))
+
+        # CPIA: cost per incremental acquisition (purchase)
+        # incremental_conversions ≈ incremental_revenue / avg_order_value
+        incremental_revenue = iroas * spend
+        incremental_conversions = incremental_revenue / avg_order_value if avg_order_value > 0 else 0.0
+        cpia = spend / incremental_conversions if incremental_conversions > 0 else 0.0
+
+        updated.append(cr.model_copy(update={
+            "iroas": round(iroas, 4),
+            "iroas_source": iroas_source,
+            "incrementality_factor": round(incrementality_factor, 4),
+            "cpia": round(cpia, 2),
+        }))
+
+    return updated

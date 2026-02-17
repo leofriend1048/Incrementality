@@ -544,3 +544,157 @@ class TikTokConnector:
             df["spend"].sum() if not df.empty else 0.0,
         )
         return df
+
+
+# ---------------------------------------------------------------------------
+# State → DMA crosswalk
+# ---------------------------------------------------------------------------
+
+# Population-weighted mapping: US state (TikTok province_name values) →
+# list of (DMA name, population_weight) tuples.
+# Weights are derived from 2020 US Census population estimates.
+# DMAs that span multiple states have fractional weights.
+# Source: Nielsen DMA rankings + Census Bureau population data.
+_STATE_TO_DMA: dict[str, list[tuple[str, float]]] = {
+    "Alabama":           [("Birmingham AL", 0.52), ("Mobile AL-Pensacola FL", 0.27), ("Huntsville-Decatur AL", 0.21)],
+    "Alaska":            [("Anchorage AK", 1.00)],
+    "Arizona":           [("Phoenix AZ", 0.81), ("Tucson AZ", 0.19)],
+    "Arkansas":          [("Little Rock AR", 0.52), ("Ft. Smith-Fayetteville AR", 0.30), ("Memphis TN", 0.18)],
+    "California":        [("Los Angeles CA", 0.53), ("San Francisco-Oakland-San Jose CA", 0.22),
+                          ("Sacramento-Stockton-Modesto CA", 0.12), ("San Diego CA", 0.13)],
+    "Colorado":          [("Denver CO", 0.82), ("Colorado Springs-Pueblo CO", 0.18)],
+    "Connecticut":       [("Hartford-New Haven CT", 0.80), ("New York NY", 0.20)],
+    "Delaware":          [("Philadelphia PA", 0.85), ("Baltimore MD", 0.15)],
+    "Florida":           [("Miami-Ft. Lauderdale FL", 0.33), ("Tampa-St. Petersburg FL", 0.28),
+                          ("Orlando FL", 0.21), ("Jacksonville FL", 0.10), ("West Palm Beach FL", 0.08)],
+    "Georgia":           [("Atlanta GA", 0.73), ("Savannah GA", 0.09), ("Augusta GA", 0.09), ("Columbus GA", 0.09)],
+    "Hawaii":            [("Honolulu HI", 1.00)],
+    "Idaho":             [("Boise ID", 0.72), ("Spokane WA", 0.28)],
+    "Illinois":          [("Chicago IL", 0.82), ("Champaign-Springfield IL", 0.12), ("Rockford IL", 0.06)],
+    "Indiana":           [("Indianapolis IN", 0.57), ("South Bend-Elkhart IN", 0.21), ("Evansville IN", 0.22)],
+    "Iowa":              [("Des Moines-Ames IA", 0.47), ("Cedar Rapids-Waterloo IA", 0.32), ("Davenport IA", 0.21)],
+    "Kansas":            [("Kansas City MO", 0.54), ("Wichita KS", 0.46)],
+    "Kentucky":          [("Louisville KY", 0.47), ("Lexington KY", 0.30), ("Cincinnati OH", 0.14), ("Paducah KY", 0.09)],
+    "Louisiana":         [("New Orleans LA", 0.48), ("Baton Rouge LA", 0.32), ("Shreveport LA", 0.20)],
+    "Maine":             [("Portland-Auburn ME", 0.80), ("Bangor ME", 0.20)],
+    "Maryland":          [("Baltimore MD", 0.73), ("Washington DC", 0.27)],
+    "Massachusetts":     [("Boston MA-Manchester NH", 0.88), ("Springfield MA", 0.12)],
+    "Michigan":          [("Detroit MI", 0.59), ("Grand Rapids-Kalamazoo MI", 0.24), ("Flint-Saginaw-Bay City MI", 0.17)],
+    "Minnesota":         [("Minneapolis-St. Paul MN", 0.88), ("Duluth MN-Superior WI", 0.12)],
+    "Mississippi":       [("Jackson MS", 0.60), ("Mobile AL-Pensacola FL", 0.25), ("Memphis TN", 0.15)],
+    "Missouri":          [("St. Louis MO", 0.47), ("Kansas City MO", 0.43), ("Springfield MO", 0.10)],
+    "Montana":           [("Billings MT", 0.60), ("Missoula MT", 0.40)],
+    "Nebraska":          [("Omaha NE", 0.72), ("Lincoln NE", 0.28)],
+    "Nevada":            [("Las Vegas NV", 0.82), ("Reno NV", 0.18)],
+    "New Hampshire":     [("Boston MA-Manchester NH", 0.75), ("Burlington VT-Plattsburgh NY", 0.25)],
+    "New Jersey":        [("New York NY", 0.80), ("Philadelphia PA", 0.20)],
+    "New Mexico":        [("Albuquerque-Santa Fe NM", 0.88), ("El Paso TX", 0.12)],
+    "New York":          [("New York NY", 0.73), ("Albany-Schenectady-Troy NY", 0.10),
+                          ("Buffalo NY", 0.09), ("Rochester NY", 0.08)],
+    "North Carolina":    [("Charlotte NC", 0.31), ("Raleigh-Durham NC", 0.28), ("Greensboro NC", 0.21),
+                          ("Wilmington NC", 0.11), ("Greenville-New Bern-Washington NC", 0.09)],
+    "North Dakota":      [("Fargo-Valley City ND", 0.72), ("Minot-Bismarck ND", 0.28)],
+    "Ohio":              [("Cleveland-Akron OH", 0.35), ("Columbus OH", 0.27), ("Cincinnati OH", 0.21),
+                          ("Dayton OH", 0.12), ("Toledo OH", 0.05)],
+    "Oklahoma":          [("Oklahoma City OK", 0.58), ("Tulsa OK", 0.42)],
+    "Oregon":            [("Portland OR", 0.82), ("Eugene OR", 0.18)],
+    "Pennsylvania":      [("Philadelphia PA", 0.47), ("Pittsburgh PA", 0.32), ("Harrisburg-Lancaster PA", 0.13),
+                          ("Wilkes Barre-Scranton PA", 0.08)],
+    "Rhode Island":      [("Providence RI-New Bedford MA", 1.00)],
+    "South Carolina":    [("Charleston SC", 0.35), ("Greenville-Spartanburg SC", 0.35),
+                          ("Columbia SC", 0.30)],
+    "South Dakota":      [("Sioux Falls SD", 0.72), ("Rapid City SD", 0.28)],
+    "Tennessee":         [("Nashville TN", 0.39), ("Memphis TN", 0.25), ("Knoxville TN", 0.18),
+                          ("Chattanooga TN", 0.10), ("Tri-Cities TN-VA", 0.08)],
+    "Texas":             [("Dallas-Ft. Worth TX", 0.38), ("Houston TX", 0.30), ("San Antonio TX", 0.12),
+                          ("Austin TX", 0.10), ("El Paso TX", 0.05), ("Waco-Temple-Bryan TX", 0.03),
+                          ("Corpus Christi TX", 0.02)],
+    "Utah":              [("Salt Lake City UT", 0.88), ("St. George UT", 0.12)],
+    "Vermont":           [("Burlington VT-Plattsburgh NY", 1.00)],
+    "Virginia":          [("Washington DC", 0.45), ("Norfolk-Portsmouth VA", 0.28),
+                          ("Richmond VA", 0.20), ("Roanoke-Lynchburg VA", 0.07)],
+    "Washington":        [("Seattle-Tacoma WA", 0.80), ("Spokane WA", 0.20)],
+    "West Virginia":     [("Charleston-Huntington WV", 0.58), ("Pittsburgh PA", 0.25), ("Roanoke-Lynchburg VA", 0.17)],
+    "Wisconsin":         [("Milwaukee WI", 0.56), ("Madison WI", 0.24), ("Green Bay WI", 0.20)],
+    "Wyoming":           [("Denver CO", 0.55), ("Salt Lake City UT", 0.30), ("Billings MT", 0.15)],
+}
+
+# Alias map for TikTok province_name variations that differ from census names
+_PROVINCE_ALIAS: dict[str, str] = {
+    "District of Columbia": "Maryland",  # route DC spend to MD→DC DMA
+    "DC": "Maryland",
+    "Puerto Rico": "Miami-Ft. Lauderdale FL",  # not a state; map to closest major market
+}
+
+
+def state_spend_to_dma(
+    state_df: "pd.DataFrame",
+    state_col: str = "region",
+    spend_col: str = "spend",
+    date_col: str = "date",
+) -> "pd.DataFrame":
+    """Disaggregate state-level TikTok spend to DMA level using population weights.
+
+    Takes the region-level spend DataFrame returned by
+    ``TikTokConnector.get_daily_spend_by_region()`` and distributes each
+    state's daily spend across the DMAs that overlap that state, weighted
+    by the relative population each DMA draws from the state.
+
+    Parameters
+    ----------
+    state_df : pd.DataFrame
+        State-level spend DataFrame with at least ``date``, ``region``, and
+        ``spend`` columns (as returned by the TikTok connector).
+    state_col : str
+        Name of the column containing state names.
+    spend_col : str
+        Name of the spend column.
+    date_col : str
+        Name of the date column.
+
+    Returns
+    -------
+    pd.DataFrame
+        DMA-level spend with columns: ``date``, ``dma``, ``spend``, and
+        all original numeric columns proportionally distributed.
+
+    Notes
+    -----
+    - States not in the crosswalk are allocated 100 % to a synthetic
+      "Unknown" DMA so that total spend is conserved.
+    - This is a population-weight approximation; geo holdout experiments
+      on specific DMAs provide causal ground truth for calibration.
+    """
+    import pandas as pd
+
+    numeric_cols = [c for c in state_df.columns if c not in (date_col, state_col)
+                    and pd.api.types.is_numeric_dtype(state_df[c])]
+
+    rows = []
+    for _, row in state_df.iterrows():
+        state = str(row[state_col])
+        state = _PROVINCE_ALIAS.get(state, state)
+        dma_weights = _STATE_TO_DMA.get(state)
+
+        if not dma_weights:
+            # Unknown state: preserve spend in an "Unknown" bucket
+            new_row: dict = {date_col: row[date_col], "dma": f"Unknown ({state})"}
+            for c in numeric_cols:
+                new_row[c] = float(row[c])
+            rows.append(new_row)
+            continue
+
+        for dma_name, weight in dma_weights:
+            new_row = {date_col: row[date_col], "dma": dma_name}
+            for c in numeric_cols:
+                new_row[c] = float(row[c]) * weight
+            rows.append(new_row)
+
+    if not rows:
+        return pd.DataFrame(columns=[date_col, "dma"] + numeric_cols)
+
+    result = pd.DataFrame(rows)
+    # Aggregate: multiple states may feed the same DMA on the same date
+    agg = {c: "sum" for c in numeric_cols}
+    result = result.groupby([date_col, "dma"], as_index=False).agg(agg)
+    return result.sort_values([date_col, "dma"]).reset_index(drop=True)

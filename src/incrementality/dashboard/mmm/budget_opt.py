@@ -4,12 +4,62 @@ Interactive spend allocation optimizer with scenario planner.
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from typing import Optional
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 from incrementality.dashboard.theme import C, CHART_PALETTE, section_header
+
+# ── Real data loader ──────────────────────────────────────────────────────────
+
+def _find_latest_run_result(output_dir: str = "./output") -> Optional[dict]:
+    """Load the most recently saved MMMRunResult JSON, or None if absent."""
+    try:
+        paths = sorted(
+            Path(output_dir).glob("mmm_run_*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if paths:
+            return json.loads(paths[0].read_text())
+    except Exception:
+        pass
+    return None
+
+
+def _real_current_alloc(run: dict, total_budget: float) -> Optional[dict]:
+    """Extract current allocation percentages from MMMRunResult channel results."""
+    try:
+        channel_results = run.get("channel_results", [])
+        if not channel_results:
+            return None
+        # Deduplicate by channel (multiple outcomes per channel — use shopify)
+        seen = {}
+        for cr in channel_results:
+            ch = cr["channel"]
+            if cr.get("outcome") == "shopify" and ch not in seen:
+                seen[ch] = cr.get("contribution_pct", 0.0)
+        if not seen:
+            return None
+        # Convert contribution_pct → spend allocation (rough proxy)
+        total_pct = sum(seen.values()) or 1.0
+        return {ch: (pct / total_pct) * total_budget for ch, pct in seen.items()}
+    except Exception:
+        return None
+
+
+def _real_optimal_alloc(run: dict) -> Optional[dict]:
+    """Extract optimal_allocation from a real MMMRunResult dict."""
+    try:
+        alloc = run.get("optimal_allocation", {})
+        return alloc if alloc else None
+    except Exception:
+        return None
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -246,11 +296,21 @@ def render() -> None:
     st.title("Budget Optimizer")
     st.caption("Greedy marginal ROI allocation · Hill saturation curves · Scenario planner")
 
-    st.info(
-        "Optimizer uses **synthetic Hill saturation parameters** calibrated to realistic MTB media mix. "
-        "Connect real Meridian posterior output to activate live optimization.",
-        icon="ℹ️",
-    )
+    run = _find_latest_run_result()
+    using_real = run is not None and bool(run.get("optimal_allocation"))
+
+    if not using_real:
+        st.info(
+            "Optimizer uses **synthetic Hill saturation parameters** calibrated to realistic MTB media mix. "
+            "Run `lift mmm fit` to activate live Meridian-posterior optimization.",
+            icon="ℹ️",
+        )
+    else:
+        st.success(
+            f"Showing **live Meridian posterior** allocation from run `{run.get('run_id', 'latest')}`. "
+            f"Blended ROAS: {run.get('blended_roas', 0):.2f}x",
+            icon="✓",
+        )
 
     # ── Input panel ───────────────────────────────────────────────────────────
     section_header("Optimization Inputs")
@@ -293,8 +353,22 @@ def render() -> None:
 
     with col_out:
         # ── Run optimizer ─────────────────────────────────────────────────────
-        rec_alloc = _optimize_budget(total_budget, shopify_wt, floors)
-        current_alloc_raw = {ch: total_budget * pct for ch, pct in _CURRENT_ALLOC.items()}
+        # Use real Meridian allocation when available; else greedy synthetic
+        if using_real:
+            real_opt = _real_optimal_alloc(run)
+            real_cur = _real_current_alloc(run, total_budget)
+            rec_alloc = real_opt or _optimize_budget(total_budget, shopify_wt, floors)
+            current_alloc_raw = real_cur or {ch: total_budget * pct for ch, pct in _CURRENT_ALLOC.items()}
+        else:
+            rec_alloc = _optimize_budget(total_budget, shopify_wt, floors)
+            current_alloc_raw = {ch: total_budget * pct for ch, pct in _CURRENT_ALLOC.items()}
+
+        # Align channel lists — keep only channels present in both allocs
+        all_channels = sorted(set(rec_alloc) | set(current_alloc_raw))
+        for ch in all_channels:
+            rec_alloc.setdefault(ch, 0.0)
+            current_alloc_raw.setdefault(ch, 0.0)
+
         # Last week: small random variation around current
         rng = np.random.default_rng(17)
         last_week_alloc = {
@@ -302,8 +376,14 @@ def render() -> None:
             for ch, v in current_alloc_raw.items()
         }
 
-        total_rev, shop_rev, amz_rev = _expected_revenue(rec_alloc, shopify_wt)
-        cur_rev, _, _ = _expected_revenue(current_alloc_raw, shopify_wt)
+        if using_real and run:
+            total_rev = run.get("expected_total_revenue", 0.0)
+            shop_rev = run.get("expected_shopify_revenue", total_rev * shopify_wt)
+            amz_rev = run.get("expected_amazon_revenue", total_rev * (1 - shopify_wt))
+            cur_rev = total_rev  # no separate "current" rev in run result
+        else:
+            total_rev, shop_rev, amz_rev = _expected_revenue(rec_alloc, shopify_wt)
+            cur_rev, _, _ = _expected_revenue(current_alloc_raw, shopify_wt)
         ci80, ci95 = _revenue_uncertainty(total_rev)
 
         # Blended ROAS
