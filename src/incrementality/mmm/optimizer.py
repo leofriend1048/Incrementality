@@ -397,9 +397,6 @@ class BudgetOptimizer:
         x0 = np.full(n, total_budget / n)
         x0 = np.clip(x0, [b[0] for b in bounds], [b[1] for b in bounds])
 
-        constraints = [
-            {"type": "ineq", "fun": lambda x: total_budget - np.sum(x)},
-        ]
 
         result = minimize(
             neg_revenue,

@@ -636,7 +636,7 @@ class MMMValidator:
         summary_parts = [
             f"Gate 1 (Statistical Fitness): {'PASS' if gate_1.passed else 'FAIL'}",
             f"Gate 2 (Causal Plausibility): {'PASS' if gate_2.passed else 'FAIL'}",
-            f"Gate 3 (Attribution Triangulation): INFORMATIONAL",
+            "Gate 3 (Attribution Triangulation): INFORMATIONAL",
             f"Trust Score: {score}/100 ({interp})",
         ]
         summary = " | ".join(summary_parts)
@@ -889,7 +889,6 @@ class MMMValidator:
                     curves = self.model.saturation_curves
                     for ch, outcomes in curves.items():
                         for outcome, (xs, ys) in outcomes.items():
-                            xs_arr = np.asarray(xs)
                             ys_arr = np.asarray(ys)
                             # Check that ys is non-decreasing
                             if not np.all(np.diff(ys_arr) >= -1e-9):

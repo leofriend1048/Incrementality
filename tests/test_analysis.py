@@ -6,7 +6,6 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from incrementality.analysis.anomaly import AnomalyReport, detect_anomalies
 from incrementality.analysis.iroas import compute_iroas
@@ -15,7 +14,7 @@ from incrementality.analysis.winsorize import (
     winsorize_panel,
     winsorize_series,
 )
-from incrementality.models import IncrementalROAS, IncrementalityResult, MeasurementScope
+from incrementality.models import IncrementalityResult, MeasurementScope
 
 
 # ---------------------------------------------------------------------------
@@ -36,7 +35,6 @@ def _make_panel(
     """
     rng = np.random.default_rng(seed)
     n_treatment = max(1, int(n_dmas * treatment_frac))
-    n_holdout = n_dmas - n_treatment
     treatment_dmas = [f"DMA_{i:03d}" for i in range(n_treatment)]
     holdout_dmas = [f"DMA_{i:03d}" for i in range(n_treatment, n_dmas)]
 

@@ -13,7 +13,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from incrementality.dashboard.theme import C, CHART_PALETTE, section_header
+from incrementality.dashboard.theme import C, section_header
 
 # ── Real data loader ──────────────────────────────────────────────────────────
 

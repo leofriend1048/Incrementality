@@ -27,15 +27,12 @@ from __future__ import annotations
 
 import logging
 import math
-import warnings
 
 import numpy as np
 import pandas as pd
 from scipy import stats as scipy_stats
 from scipy.optimize import minimize
 from sklearn.linear_model import RidgeCV, Ridge
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import LeaveOneOut
 
 from incrementality.models import IncrementalityResult
 
@@ -82,7 +79,6 @@ def augmented_synthetic_control(
 
     n_pre = len(pre_dates)
     n_post = len(post_dates)
-    n_control = X_control_pre.shape[1]
 
     if n_pre < 7 or n_post < 3:
         raise ValueError(f"Insufficient data: {n_pre} pre-periods, {n_post} post-periods")
@@ -898,7 +894,6 @@ def _weighted_ensemble(
     """Combine multiple estimator results into a single weighted estimate."""
     # Weighted average of point estimates
     tau = sum(r.absolute_lift * weights[n] for n, r in results.items())
-    baseline_lifts = [r.relative_lift for r in results.values()]
     relative = sum(r.relative_lift * weights[n] for n, r in results.items())
 
     # Conservative CI: take the widest

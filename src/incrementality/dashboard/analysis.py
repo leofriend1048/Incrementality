@@ -13,7 +13,7 @@ import streamlit as st
 
 from incrementality.dashboard.data_loader import scan_reports
 from incrementality.dashboard.theme import (
-    C, CHART_PALETTE, empty_state, metric_card, score_bar,
+    C, empty_state, metric_card, score_bar,
     section_header, status_badge,
 )
 
@@ -377,14 +377,14 @@ def _render_revenue_waterfall(report):
         labels = ["Organic Baseline", "Incremental Revenue", "Total Revenue"]
         measures = ["absolute", "relative", "total"]
         values = [organic, shopify_inc, organic + shopify_inc]
-        bar_colors = [C["text_muted"], C["primary"], C["ok"]]
+        _ = [C["text_muted"], C["primary"], C["ok"]]
     else:
         labels = ["Organic Baseline", "Shopify Incremental", "Amazon Incremental",
                   "Total Revenue"]
         measures = ["absolute", "relative", "relative", "total"]
         values = [organic, shopify_inc, amazon_inc,
                  organic + shopify_inc + amazon_inc]
-        bar_colors = [C["text_muted"], C["ok"], C["purple"], C["primary"]]
+        _ = [C["text_muted"], C["ok"], C["purple"], C["primary"]]
 
     fig = go.Figure(go.Waterfall(
         x=labels,
@@ -598,7 +598,6 @@ def _render_platform_detail_cards(report):
         c1, c2, c3 = st.columns(3)
         with c1:
             if_val = iroas.incrementality_factor
-            if_color = C["ok"] if 0.5 <= if_val <= 1.5 else C["warn"]
             metric_card("Incrementality Factor", f"{if_val:.2f}",
                          "1.0 = perfect attribution")
         with c2:

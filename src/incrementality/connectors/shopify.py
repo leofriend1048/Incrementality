@@ -7,7 +7,7 @@ to DMA-level daily metrics using shipping address zip-to-DMA mapping.
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 import pandas as pd
@@ -135,8 +135,8 @@ class ShopifyConnector:
             )
             if coverage_pct < 0.50:
                 logger.error(
-                    f"Less than 50% of Shopify orders map to DMAs. "
-                    f"Results will be unreliable. Check shipping address data."
+                    "Less than 50% of Shopify orders map to DMAs. "
+                    "Results will be unreliable. Check shipping address data."
                 )
 
         # Drop orders without DMA mapping

@@ -14,7 +14,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date
 from pathlib import Path
 
 from incrementality.models import (
@@ -408,7 +408,7 @@ def _print_spend_response(sr: dict) -> None:
     elif direction == "increase":
         kv("Recommendation", f"[ok]Increase spend {pct:+.0f}%[/ok]")
     else:
-        kv("Recommendation", f"[ok]Maintain current spend[/ok]")
+        kv("Recommendation", "[ok]Maintain current spend[/ok]")
 
     rec = sr.get("recommendation", "")
     if rec:

@@ -10,7 +10,6 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import logging
 import sys
 from datetime import date, timedelta
@@ -20,30 +19,24 @@ import warnings as _warnings
 _warnings.filterwarnings("ignore", message=".*Pyarrow.*")
 _warnings.filterwarnings("ignore", category=FutureWarning)
 
-import click
-import numpy as np
-import pandas as pd
+import click  # noqa: E402
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 
-from incrementality.config import Config, StatisticalConfig
-from incrementality.models import AdChannel, MeasurementScope, TestScope
-from incrementality.ui import (
-    BRAND,
-    VERSION,
+from incrementality.config import Config, StatisticalConfig  # noqa: E402
+from incrementality.models import AdChannel, MeasurementScope, TestScope  # noqa: E402
+from incrementality.ui import (  # noqa: E402
     banner,
     branded_table,
-    card,
     console,
     done,
     fail,
     info,
     kv,
-    iroas_value,
     lift_value,
     money,
-    result_card,
     score_bar,
     section,
-    sig_badge,
     spacer,
     step,
     warning,
@@ -303,7 +296,7 @@ def analyze(ctx: click.Context, test_id: str, data_dir: str | None,
 
     try:
         with step("Running causal inference analysis"):
-            report = orchestrator.analyze_test(
+            orchestrator.analyze_test(
                 test_design, pre_data, post_data, ad_spend,
                 attributed_conversions=attributed_conversions,
             )

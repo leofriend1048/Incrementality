@@ -26,7 +26,7 @@ from typing import Any
 import pandas as pd
 import requests
 
-from incrementality.connectors.retry import request_with_retry, RetryableRequestError
+from incrementality.connectors.retry import request_with_retry
 
 logger = logging.getLogger(__name__)
 

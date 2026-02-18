@@ -21,7 +21,6 @@ Typical usage
 
 from __future__ import annotations
 
-import json
 import logging
 import pickle
 from datetime import date, timedelta
@@ -39,7 +38,7 @@ logger = logging.getLogger(__name__)
 # Optional Meridian import
 # ---------------------------------------------------------------------------
 try:
-    import meridian  # type: ignore[import-untyped]
+    import meridian  # type: ignore[import-untyped]  # noqa: F401
     from meridian import data as meridian_data  # type: ignore[import-untyped]
     from meridian import model as meridian_model  # type: ignore[import-untyped]
 

@@ -6,7 +6,7 @@ import streamlit as st
 
 from incrementality.dashboard.data_loader import scan_designs, scan_reports
 from incrementality.dashboard.theme import (
-    C, empty_state, metric_card, section_header, status_badge,
+    C, empty_state, section_header, status_badge,
 )
 
 

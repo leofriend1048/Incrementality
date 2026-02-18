@@ -168,7 +168,6 @@ def _make_decomp_data(outcome: str, window: int) -> pd.DataFrame:
         })
 
     df = pd.DataFrame(rows)
-    total_channel = df["contribution"].sum()
     residual = rng.normal(0.02, 0.005) * scale
 
     # Prepend baseline row
@@ -269,8 +268,6 @@ def _waterfall_fig(df: pd.DataFrame) -> go.Figure:
     ))
 
     # Overlay 80% CI as thicker bars
-    err_minus_80 = (df["contribution"] - df["ci80_lo"]).clip(lower=0).tolist()
-    err_plus_80  = (df["ci80_hi"] - df["contribution"]).clip(lower=0).tolist()
 
     fig.update_layout(
         paper_bgcolor=C["bg"],
@@ -412,7 +409,7 @@ def render() -> None:
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
     with st.expander("Interpretation guide"):
-        st.markdown(f"""
+        st.markdown("""
         | Metric | Definition |
         |--------|------------|
         | **NB MTA Attribution** | Northbeam data-driven multi-touch attribution (last model refresh) |

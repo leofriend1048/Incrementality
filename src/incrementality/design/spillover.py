@@ -24,12 +24,10 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
 
 from incrementality.design.dma_boundaries import (
     get_adjacency,
     compute_adjacency_from_centroids,
-    _ALL_DMA_CENTROIDS,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,7 +84,6 @@ def compute_spillover_risk(
     - clean_holdout_fraction: fraction of holdout DMAs NOT bordering treatment
     - recommendations: list of suggested actions
     """
-    treatment_set = set(treatment_dmas)
     holdout_set = set(holdout_dmas)
 
     border_pairs = []

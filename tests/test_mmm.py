@@ -21,10 +21,7 @@ Design principles
 
 from __future__ import annotations
 
-import json
-import os
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 
@@ -801,7 +798,7 @@ class TestAlertManager:
         """At least one R-hat above 1.05 must return True (critical alert)."""
         mock_resp = MagicMock()
         mock_resp.raise_for_status.return_value = None
-        with patch("requests.post", return_value=mock_resp) as mock_post:
+        with patch("requests.post", return_value=mock_resp):
             triggered = am.check_rhat_convergence(self._bad_rhat_df())
         assert triggered is True
 
@@ -872,7 +869,7 @@ class TestAlertManager:
         mock_resp = MagicMock()
         mock_resp.raise_for_status.return_value = None
         with patch("requests.post", return_value=mock_resp) as mock_post:
-            result = am.send_slack(
+            am.send_slack(
                 message="Test alert message",
                 severity=self.AlertSeverity.INFO,
             )

@@ -8,7 +8,7 @@ import streamlit as st
 
 from incrementality.dashboard.data_loader import scan_designs
 from incrementality.dashboard.theme import (
-    C, empty_state, metric_card, score_bar, section_header, status_badge,
+    C, empty_state, metric_card, score_bar, section_header,
 )
 
 
@@ -56,7 +56,6 @@ def render(data_dir: str):
                     f"${design.holdout_cell.historical_revenue:,.0f} historical revenue")
     with c3:
         bal = design.balance_score
-        color = C["ok"] if bal >= 0.8 else C["warn"] if bal >= 0.6 else C["bad"]
         metric_card("Balance Score", f"{bal:.1%}",
                     "Treatment ≈ Holdout on key covariates")
 
@@ -109,7 +108,6 @@ def _render_power_analysis(design):
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        mde_color = C["ok"] if pa.minimum_detectable_effect <= 0.15 else C["warn"]
         metric_card("MDE", f"{pa.minimum_detectable_effect:.1%}",
                     "Minimum detectable effect")
     with c2:

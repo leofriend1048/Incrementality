@@ -11,7 +11,6 @@ as plain synchronous Python functions with the same signatures.
 
 from __future__ import annotations
 
-import importlib
 import logging
 import traceback
 from datetime import datetime, timezone
@@ -26,7 +25,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 try:
     from prefect import flow, task
-    from prefect.blocks.system import Secret
+    from prefect.blocks.system import Secret  # noqa: F401
     from prefect.logging import get_run_logger
 
     _PREFECT_AVAILABLE = True
@@ -550,7 +549,7 @@ def mmm_daily_ingest(
     dict
         Summary of the run including per-task results and overall status.
     """
-    from datetime import date, timedelta
+    from datetime import timedelta
     import pytz
 
     log = _get_logger()

@@ -9,7 +9,6 @@ Integration test (test_shopify_live) hits the real API. Run with:
 
 from __future__ import annotations
 
-import json
 import os
 from datetime import date
 from unittest.mock import MagicMock, patch

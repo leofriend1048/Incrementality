@@ -488,7 +488,7 @@ class AlertManager:
             f":no_entry: *Dashboard has been blocked pending refit.*"
         )
 
-        failed_list = failed[[param_col, rhat_col]].head(10).to_dict("records")
+        failed[[param_col, rhat_col]].head(10).to_dict("records")
         fields = [
             {"title": "# Failed params", "value": str(n_failed)},
             {"title": "Max R-hat", "value": f"{max_rhat:.4f}"},

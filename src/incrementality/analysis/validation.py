@@ -25,7 +25,6 @@ import pandas as pd
 from incrementality.analysis.estimators import (
     augmented_synthetic_control,
     difference_in_differences,
-    run_ensemble,
 )
 from incrementality.models import (
     IncrementalityResult,
@@ -338,7 +337,7 @@ def _compute_estimator_agreement(
 
     lifts = [r.relative_lift for r in results.values()]
     # Treat near-zero lifts as agreeing with the majority direction
-    signs = [1 if l > 1e-6 else (-1 if l < -1e-6 else 0) for l in lifts]
+    signs = [1 if lift_val > 1e-6 else (-1 if lift_val < -1e-6 else 0) for lift_val in lifts]
     non_zero_signs = [s for s in signs if s != 0]
 
     # Direction agreement: fraction of estimators agreeing on sign

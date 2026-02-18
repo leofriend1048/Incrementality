@@ -12,8 +12,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from incrementality.dashboard.mmm import decomposition, dma_intel, budget_opt, model_health
-from incrementality.dashboard.theme import apply_theme
+from incrementality.dashboard.mmm import decomposition, dma_intel, budget_opt, model_health  # noqa: E402
+from incrementality.dashboard.theme import apply_theme  # noqa: E402
 
 def main():
     apply_theme()

@@ -18,13 +18,11 @@ from __future__ import annotations
 import logging
 from datetime import date, timedelta
 
-import numpy as np
 import pandas as pd
 
 from incrementality.config import StatisticalConfig
 from incrementality.design.matching import (
     build_test_cells,
-    compute_balance_score,
     match_dmas_mahalanobis,
     match_dmas_rerandomization,
     prepare_matching_data,
