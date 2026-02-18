@@ -14,7 +14,6 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from incrementality.analysis.spend_response import (
     SpendResponseCurve,

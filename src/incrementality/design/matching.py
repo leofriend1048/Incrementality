@@ -16,15 +16,12 @@ from __future__ import annotations
 
 import logging
 import math
-from itertools import combinations
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
 from sklearn.preprocessing import StandardScaler
 
-from incrementality.config import StatisticalConfig
 from incrementality.models import CellType, DMAHistoricalMetrics, TestCell
 
 logger = logging.getLogger(__name__)

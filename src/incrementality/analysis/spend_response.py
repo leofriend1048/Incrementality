@@ -295,7 +295,6 @@ def estimate_spend_response(
 
     # --- Step 7: Current state ---
     n_treatment = len(fit_data)
-    current_total_daily = float(x.sum())
     current_avg_per_dma = float(x.mean())
     current_inc_rev = float(_hill_function(np.array([current_avg_per_dma]), r_max, k, alpha)[0])
     current_iroas = current_inc_rev / current_avg_per_dma if current_avg_per_dma > 0 else 0.0

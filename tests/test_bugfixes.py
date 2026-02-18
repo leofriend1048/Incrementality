@@ -21,7 +21,6 @@ from datetime import date
 import numpy as np
 import pandas as pd
 import pytest
-from scipy import stats
 
 from incrementality.analysis.estimators import (
     _build_panel_matrices,
@@ -376,8 +375,6 @@ class TestCampaignLevelDesign:
     def test_pull_historical_data_accepts_campaign_ids(self):
         """pull_historical_data should accept ad_channel and campaign_ids params."""
         from incrementality.orchestrator import TestOrchestrator
-        from incrementality.config import Config
-        from incrementality.models import AdChannel
         import inspect
 
         sig = inspect.signature(TestOrchestrator.pull_historical_data)
@@ -389,7 +386,7 @@ class TestCampaignLevelDesign:
 
     def test_design_test_passes_campaign_ids_to_data_pull(self):
         """design_test should pass campaign_ids when pulling historical data."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
         from incrementality.orchestrator import TestOrchestrator
         from incrementality.config import Config
         from incrementality.models import AdChannel, TestScope
@@ -542,7 +539,6 @@ class TestCLIAttributedConversions:
     def test_analyze_has_attributed_conversions_param(self):
         """The analyze CLI command should accept --attributed-conversions."""
         from incrementality.cli import analyze
-        import click
 
         # Inspect click command params
         param_names = [p.name for p in analyze.params]

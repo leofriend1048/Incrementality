@@ -40,7 +40,7 @@ from incrementality.connectors.amazon import AmazonConnector
 from incrementality.connectors.facebook import FacebookConnector
 from incrementality.connectors.shopify import ShopifyConnector
 from incrementality.connectors.youtube import YouTubeConnector
-from incrementality.design.optimizer import auto_design_test, compute_dma_historical_metrics
+from incrementality.design.optimizer import auto_design_test
 from incrementality.design.spillover import compute_spillover_risk, adjust_for_spillover
 from incrementality.models import (
     AdChannel,

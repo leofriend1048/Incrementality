@@ -388,7 +388,7 @@ class TestOrchestratorUpdateHoldout:
 
     def test_update_works_for_campaign_level(self):
         """update_holdout should scope to campaign IDs for campaign-level tests."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
         from incrementality.orchestrator import TestOrchestrator
         from incrementality.config import Config
         from incrementality.models import (

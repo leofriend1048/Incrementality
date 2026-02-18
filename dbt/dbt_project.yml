@@ -1,0 +1,22 @@
+name: 'mtb_mmm'
+version: '1.0.0'
+config-version: 2
+
+profile: 'mtb_mmm'
+
+model-paths: ["models"]
+test-paths: ["tests"]
+source-paths: ["models"]
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  mtb_mmm:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: table
+    mart:
+      +materialized: table

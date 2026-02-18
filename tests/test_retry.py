@@ -12,14 +12,12 @@ Validates:
 
 from __future__ import annotations
 
-from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 
 from incrementality.connectors.retry import (
-    DEFAULT_MAX_RETRIES,
     RetryableRequestError,
     _compute_delay,
     _parse_retry_after,

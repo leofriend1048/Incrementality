@@ -1,5 +1,13 @@
-# Incrementality Testing Platform Configuration
-# Copy this to config.yaml and fill in your credentials.
+# LIFT — Geo Incrementality + MMM Platform Configuration
+# Copy this file to config.yaml and fill in your credentials.
+#
+# Sections:
+#   Revenue sources : shopify, amazon
+#   Ad connectors   : facebook, youtube, tiktok
+#   Calibration     : northbeam
+#   Statistical     : geo holdout test parameters
+#   MMM             : Meridian engine settings
+#   Directories     : data_dir, output_dir
 
 # --- Revenue Data Sources ---
 
@@ -32,7 +40,68 @@ youtube:
   refresh_token: "your-refresh-token"
   customer_id: "123-456-7890"
 
-# --- Statistical Parameters ---
+tiktok:
+  app_id: "your-tiktok-app-id"
+  secret: "your-tiktok-secret"
+  access_token: "your-tiktok-access-token"
+  advertiser_id: "your-advertiser-id"
+
+tiktok_shop:
+  app_key: "your-tiktok-shop-app-key"
+  app_secret: "your-tiktok-shop-app-secret"
+  access_token: "your-tiktok-shop-access-token"
+  shop_id: "your-shop-id"  # TikTok Shop merchant ID
+
+pinterest:
+  app_id: "your-pinterest-app-id"
+  app_secret: "your-pinterest-app-secret"
+  access_token: "your-pinterest-access-token"
+  ad_account_id: "549755885175"  # Pinterest ad account numeric ID
+
+applovin:
+  # AppLovin Ads (Axon engine) — the advertiser DSP, NOT AppLovin MAX (publisher SDK)
+  # Find your API key in: AppLovin Ads dashboard → Account → API
+  api_key: "your-applovin-ads-api-key"
+
+tatari:
+  api_key: "your-tatari-api-key"
+  account_id: "your-tatari-account-id"
+  base_url: "https://api.tatari.tv"
+
+# --- Owned & Retention Channels ---
+
+postscript:
+  api_key: "your-postscript-api-key"
+  shop_id: ""  # Optional — auto-discovered if blank
+
+klaviyo:
+  private_key: "pk_your-klaviyo-private-key"  # Server-side private key
+  public_key: ""                               # Optional public site ID
+
+# --- Northbeam MTA (calibration layer for MMM priors) ---
+
+northbeam:
+  api_key: "your-northbeam-api-key"
+  account_id: "your-northbeam-account-id"
+  attribution_window: 28  # days (7 or 28)
+  # Channel discount factors: NB MTA share × factor → prior mean for Meridian
+  # Wider factors for upper-funnel channels where MTA overstates
+  discount_factors:
+    meta_perf: 0.65        # MTA over-attributes; geo experiment is ground truth
+    meta_aware: 0.60       # Awareness harder to attribute; wider discount
+    google_brand: 0.85     # Brand search is mostly incremental
+    google_nonbrand: 0.75
+    tiktok: 0.65
+    tiktok_shop: 0.70      # Shop GMV partly organic/affiliate
+    tiktok_gmv_max: 0.68
+    pinterest: 0.60        # Long consideration cycles → MTA understates lag
+    applovin: 0.55         # CTV/mobile attribution noisy
+    tatari: 0.50           # TV attribution highly uncertain
+    amz_sponsored: 1.00    # Amazon's own attribution is relatively clean
+    postscript_sms: 0.85   # SMS is last-touch; high incrementality for reactivations
+    klaviyo_email: 0.85
+
+# --- Statistical Parameters (Geo Holdout Tests) ---
 
 statistical:
   significance_level: 0.05        # Alpha (Type I error rate)
@@ -45,7 +114,65 @@ statistical:
   target_holdout_fraction: 0.25   # Target holdout size (25%)
   balance_tolerance: 0.10         # Max standardized mean difference
 
+# --- MMM Engine (Google Meridian) ---
+
+mmm:
+  # Channels to model (order matches the [T×G×C] media tensor)
+  channels:
+    # Meta / Facebook
+    - meta_perf
+    - meta_aware
+    # Google / YouTube
+    - google_brand
+    - google_nonbrand
+    # TikTok
+    - tiktok
+    - tiktok_shop
+    - tiktok_gmv_max
+    # Pinterest
+    - pinterest
+    # Mobile / CTV
+    - applovin
+    # TV
+    - tatari
+    # Amazon retail media
+    - amz_sponsored
+    # Owned / retention
+    - postscript_sms
+    - klaviyo_email
+
+  # MCMC — 4 chains × 2000 samples = 8000 total posterior draws
+  mcmc_chains: 4
+  mcmc_warmup: 1000
+  mcmc_samples: 2000
+
+  # Budget optimizer constraints
+  max_channel_concentration: 0.55  # No channel > 55% of total budget
+  shopify_revenue_weight: 0.70
+  amazon_revenue_weight: 0.30
+
+  # Alerting thresholds (§9.3)
+  mroi_drop_alert_threshold: 0.20
+  nb_mmm_delta_alert_threshold: 0.40
+  posterior_mape_alert_threshold: 0.12
+  beta_decay_alert_threshold: 0.25
+
+  # BigQuery (leave blank to use local SQLite fallback)
+  gcp_project_id: ""
+  bq_dataset_id: "mmm_prod"
+
+  # MLflow (leave as-is to use local JSON registry)
+  mlflow_tracking_uri: "http://localhost:5000"
+
+  # Slack / PagerDuty (optional; leave blank to disable alerts)
+  slack_webhook_url: ""
+  pagerduty_routing_key: ""
+
+  # Refit schedule
+  weekly_refit_day: "monday"
+  daily_update_hour_et: 7
+
 # --- Directories ---
 
-data_dir: "./data"                # Where test data and designs are stored
-output_dir: "./output"            # Where reports are saved
+data_dir: "./data"                # Designs, cached parquet, calibration events
+output_dir: "./output"            # HTML/JSON reports, MMM run results

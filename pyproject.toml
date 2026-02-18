@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "incrementality"
-version = "0.3.0"
-description = "Geo holdout incrementality testing platform for Shopify and Amazon brands"
+version = "0.4.0"
+description = "Google Meridian MMM + Geo Holdout Incrementality Platform"
 requires-python = ">=3.10"
 dependencies = [
     "pandas>=2.0,<3.0",
@@ -35,6 +35,22 @@ geo = ["geopandas>=0.14", "shapely>=2.0"]
 pdf = ["weasyprint>=60.0"]
 # Streamlit dashboard
 dashboard = ["streamlit>=1.30", "plotly>=5.18"]
+# Google Meridian MMM
+mmm = ["google-meridian>=0.1", "tensorflow-probability>=0.23", "cvxpy>=1.4"]
+# BigQuery data warehouse
+warehouse = ["google-cloud-bigquery>=3.13", "db-dtypes>=1.2"]
+# Prefect orchestration
+orchestration = ["prefect>=2.16", "prefect-gcp>=0.5"]
+# MLflow experiment tracking
+mlflow = ["mlflow>=2.11"]
+# Slack alerting
+alerts = ["slack-sdk>=3.27"]
+# TikTok connector
+tiktok = ["requests>=2.31"]
+# Northbeam connector
+northbeam = ["requests>=2.31"]
+# dbt transformations
+dbt = ["dbt-core>=1.7", "dbt-bigquery>=1.7"]
 # All connectors + advanced features
 all = [
     "shopifyapi>=12.0",
@@ -46,6 +62,17 @@ all = [
     "weasyprint>=60.0",
     "streamlit>=1.30",
     "plotly>=5.18",
+    "google-meridian>=0.1",
+    "tensorflow-probability>=0.23",
+    "cvxpy>=1.4",
+    "google-cloud-bigquery>=3.13",
+    "db-dtypes>=1.2",
+    "prefect>=2.16",
+    "prefect-gcp>=0.5",
+    "mlflow>=2.11",
+    "slack-sdk>=3.27",
+    "dbt-core>=1.7",
+    "dbt-bigquery>=1.7",
 ]
 dev = [
     "pytest>=7.0",

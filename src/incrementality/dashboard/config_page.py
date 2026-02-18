@@ -14,7 +14,7 @@ from incrementality.config import (
     StatisticalConfig,
     YouTubeConfig,
 )
-from incrementality.dashboard.theme import C, metric_card, section_header, status_badge
+from incrementality.dashboard.theme import section_header, status_badge
 
 
 def render(config_path: str):

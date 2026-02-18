@@ -351,7 +351,7 @@ def run_simulation_power_analysis(
 
     # Compute analytical estimates for comparison
     var_est = estimate_historical_variance(daily_data, revenue_col, dma_col, date_col)
-    analytical_mde = compute_mde(
+    compute_mde(
         var_est, len(treatment_dmas), len(holdout_dmas),
         test_duration_weeks, alpha, 0.80,
     )
